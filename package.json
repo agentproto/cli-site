@@ -1,0 +1,46 @@
+{
+  "name": "@agentproto/cli-site",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "description": "cli.agentproto.sh — public docs site for @agentproto/cli (the `agentproto` binary) + adjacent runtime packages. Content source: github.com/agentproto/ts at docs/cli/ (cloned at build time, sibling-resolved in dev).",
+  "homepage": "https://cli.agentproto.sh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentproto/site"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/sync-content.mjs",
+    "dev": "next dev --turbopack -p 3010",
+    "prebuild": "node scripts/sync-content.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "pretypecheck": "node scripts/sync-content.mjs && fumadocs-mdx",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .next .source content/docs .cache"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "fumadocs-core": "^16.8.9",
+    "fumadocs-mdx": "^14.3.2",
+    "fumadocs-ui": "^16.8.9",
+    "next": "^16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^24.12.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

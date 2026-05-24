@@ -1,0 +1,18 @@
+# Dependencies
+node_modules
+
+# Next build output
+.next
+
+# Fumadocs MDX compiled tree
+.source
+
+# Synced content — always populated from agentproto/ts at build time
+content/docs
+
+# Sync cache (git clone of agentproto/ts)
+.cache
+
+# Logs
+*.log
+.DS_Store

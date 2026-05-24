@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build:
+    name: Type-check + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      # `cache: pnpm` would speed up installs but requires a committed
+      # pnpm-lock.yaml to compute its cache key. Skipping until we ship
+      # a standalone lockfile.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No committed lockfile yet — the site is also a workspace member
+      # of the private agentik-studio monorepo where the canonical
+      # lockfile lives. CI resolves from package.json ranges.
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # `prebuild` + `pretypecheck` both run scripts/sync-content.mjs
+      # which clones github.com/agentproto/ts into .cache/ at depth 1.
+      # Public repo — no auth needed.
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Build (with content sync)
+        run: pnpm build

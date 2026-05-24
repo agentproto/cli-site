@@ -1,0 +1,121 @@
+name: Deploy to GCP Cloud Run
+
+on:
+  push:
+    branches: [main]
+  # Allow manual triggering from the Actions UI for emergency redeploy.
+  workflow_dispatch:
+  # Triggered by repository_dispatch from agentproto/ts when the
+  # docs/cli/ tree changes — keeps content fresh without manual
+  # rebuild. Configure via a follow-up workflow in the ts repo.
+  repository_dispatch:
+    types: [content-changed]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Cloud Run runtime project (where the service runs). Each product
+  # gets its own project for IAM isolation.
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION }}
+  # Artifact Registry coords. Convention: ONE shared AR in
+  # `agentik-studio`, all product images push there. Cross-project
+  # pull wired by `agentik infra new-product`. Falls back to
+  # GCP_PROJECT_ID when GCP_REGISTRY_PROJECT is unset (per-project AR).
+  GCP_REGISTRY_PROJECT: ${{ vars.GCP_REGISTRY_PROJECT || vars.GCP_PROJECT_ID }}
+  ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
+  SERVICE_NAME: agentproto-cli-site
+
+jobs:
+  deploy:
+    name: Build + push + deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Workload Identity Federation: GitHub gives the runner an OIDC
+    # token, GCP exchanges it for short-lived SA credentials. No SA
+    # key in repo secrets — keyless auth is the recommended pattern.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          # Image path uses the REGISTRY project (shared AR) — not the
+          # runtime project. Cloud Run on the runtime project pulls
+          # cross-project via IAM binding.
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_REGISTRY_PROJECT }}/${{ env.ARTIFACT_REPO }}/${{ env.SERVICE_NAME }}"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE:$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_latest=$IMAGE:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --platform=linux/amd64 \
+            -t ${{ steps.tag.outputs.image }} \
+            -t ${{ steps.tag.outputs.image_latest }} \
+            -f Dockerfile \
+            .
+
+      - name: Push to Artifact Registry
+        run: |
+          docker push ${{ steps.tag.outputs.image }}
+          docker push ${{ steps.tag.outputs.image_latest }}
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          # `project_id` overrides the auto-detected gcloud project,
+          # which would otherwise be the deployer SA's home project.
+          # The Cloud Run service runs in the per-product runtime
+          # project, NOT in the registry project.
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ steps.tag.outputs.image }}
+          flags: >-
+            --allow-unauthenticated
+            --cpu=1
+            --memory=512Mi
+            --min-instances=0
+            --max-instances=5
+            --concurrency=80
+            --timeout=60
+            --cpu-boost
+            --execution-environment=gen2
+
+      - name: Print service URL
+        run: echo "Deployed at ${{ steps.deploy.outputs.url }}"
+
+      - name: Health check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/")
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Health check returned HTTP $STATUS"
+            exit 1
+          fi
+          echo "Health check OK"
