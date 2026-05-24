@@ -73,7 +73,13 @@ async function walkMarkdown(dir, out = []) {
  */
 async function syncOne(srcAbs, srcRoot, dstRoot) {
   const rel = path.relative(srcRoot, srcAbs)
-  const dstRel = rel.replace(/\.md$/, ".mdx")
+  // Fumadocs uses `index.mdx` as the section landing — `/docs` resolves
+  // to `content/docs/index.mdx`, `/docs/concepts` to
+  // `content/docs/concepts/index.mdx`, etc. Map `README.md` → `index.mdx`
+  // so the source convention (README per dir) reaches the right URL.
+  const dstRel = rel
+    .replace(/(^|\/)README\.md$/, "$1index.mdx")
+    .replace(/\.md$/, ".mdx")
   const dstAbs = path.join(dstRoot, dstRel)
   await mkdir(path.dirname(dstAbs), { recursive: true })
 
