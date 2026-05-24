@@ -57,7 +57,15 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker auth for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+        # `configure-docker` writes the credential helper config, but
+        # in some runner configurations Docker doesn't pick the WIF
+        # ADC up via the helper alone. Explicit `docker login` with a
+        # short-lived access token is the reliable path.
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+          gcloud auth print-access-token | docker login \
+            -u oauth2accesstoken --password-stdin \
+            https://${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Compute image tag
         id: tag
