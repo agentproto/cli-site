@@ -59,7 +59,9 @@ async function walkMarkdown(dir, out = []) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
       await walkMarkdown(full, out)
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+    } else if (entry.isFile() && (entry.name.endsWith(".md") || entry.name === "meta.json")) {
+      // Include meta.json alongside .md files so Fumadocs sidebar ordering
+      // (section title, page order) can be controlled from the source docs.
       out.push(full)
     }
   }
@@ -73,6 +75,15 @@ async function walkMarkdown(dir, out = []) {
  */
 async function syncOne(srcAbs, srcRoot, dstRoot) {
   const rel = path.relative(srcRoot, srcAbs)
+
+  // Pass meta.json through unchanged — no rename, no frontmatter injection.
+  if (path.basename(srcAbs) === "meta.json") {
+    const dstAbs = path.join(dstRoot, rel)
+    await mkdir(path.dirname(dstAbs), { recursive: true })
+    await writeFile(dstAbs, await readFile(srcAbs, "utf8"), "utf8")
+    return
+  }
+
   // Fumadocs uses `index.mdx` as the section landing — `/docs` resolves
   // to `content/docs/index.mdx`, `/docs/concepts` to
   // `content/docs/concepts/index.mdx`, etc. Map `README.md` → `index.mdx`
