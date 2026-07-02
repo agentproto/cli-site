@@ -22,6 +22,7 @@ export interface DaemonSession {
   name?: string
   label?: string
   adapterSlug?: string
+  adapterSessionId?: string
   cwd?: string
 }
 

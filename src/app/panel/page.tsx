@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useDaemon, type DaemonSession, type CreateTerminalParams } from "@/lib/use-daemon"
 import { SessionTerminal } from "@/components/SessionTerminal"
 import { SessionChatView, SessionJsonView } from "@/components/SessionChatView"
+import { SessionEventsView } from "@/components/SessionEventsView"
 
-type TabId = "terminal" | "chat" | "json"
+type TabId = "terminal" | "chat" | "json" | "tty"
 
 const STATUS_COLOR: Record<string, string> = {
   running: "#4ade80",
@@ -49,7 +50,7 @@ function humanAge(iso: string): string {
 function TerminalLauncher({
   onCreate,
 }: {
-  onCreate: (params: CreateTerminalParams) => Promise<{ ok: true } | { ok: false; error: string }>
+  onCreate: (params: CreateTerminalParams) => Promise<{ ok: true; session: DaemonSession } | { ok: false; error: string }>
 }) {
   const [open, setOpen] = useState(false)
   const [cmd, setCmd] = useState("zsh")
@@ -208,6 +209,217 @@ function TerminalLauncher({
 }
 
 // ---------------------------------------------------------------------------
+// TTY Tab
+// ---------------------------------------------------------------------------
+
+/** Maps adapterSlug → a function that builds argv given the adapterSessionId. */
+const RESUME_MAP: Record<string, (adapterSessionId: string) => string[]> = {
+  "claude-code": (sid) => ["claude", "--resume", sid],
+  "hermes":      (sid) => ["hermes", "--resume", sid],
+}
+
+function resolveResume(
+  adapterSlug: string | undefined,
+  adapterSessionId: string | undefined,
+): { argv: string[] } | { disabled: true; reason: string } {
+  if (!adapterSlug || !adapterSessionId) {
+    return { disabled: true, reason: "no resume support (missing adapterSlug / adapterSessionId)" }
+  }
+  const builder = RESUME_MAP[adapterSlug]
+  if (!builder) {
+    return { disabled: true, reason: `no TUI resume mapping for "${adapterSlug}"` }
+  }
+  return { argv: builder(adapterSessionId) }
+}
+
+function TtyTabContent({
+  daemonUrl,
+  session,
+  onCreate,
+  onCreated,
+}: {
+  daemonUrl: string
+  session: DaemonSession
+  onCreate: (params: CreateTerminalParams) => Promise<{ ok: true; session: DaemonSession } | { ok: false; error: string }>
+  onCreated: (newSessionId: string) => void
+}) {
+  const [launching, setLaunching] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // PTY sessions: just render the terminal directly
+  if (session.pty === true) {
+    return (
+      <SessionTerminal
+        key={session.id}
+        daemonUrl={daemonUrl}
+        sessionId={session.id}
+        pty={true}
+      />
+    )
+  }
+
+  // Agent (non-PTY) sessions: show explainer + resume button
+  const resume = resolveResume(session.adapterSlug, session.adapterSessionId)
+  const disabled = "disabled" in resume
+
+  const handleResume = async () => {
+    if (disabled) return
+    setLaunching(true)
+    setErr(null)
+    const result = await onCreate({
+      argv: resume.argv,
+      cols: 220,
+      rows: 50,
+      ...(session.cwd ? { cwd: session.cwd } : {}),
+      label: `tui · ${session.label ?? session.adapterSlug ?? session.id.slice(0, 8)}`,
+    })
+    setLaunching(false)
+    if (result.ok) {
+      onCreated(result.session.id)
+    } else {
+      setErr(result.error)
+    }
+  }
+
+  const mono: React.CSSProperties = {
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  }
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 32,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 480,
+          width: "100%",
+          border: "1px solid #222",
+          borderRadius: 8,
+          padding: "24px 28px",
+          background: "#0e0e10",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>⌨</span>
+          <span style={{ ...mono, fontSize: 13, color: "#e8e8e8", fontWeight: 700 }}>
+            Open real TUI
+          </span>
+        </div>
+
+        {/* Explainer */}
+        <p style={{ ...mono, fontSize: 11, color: "#9ca3af", margin: 0, lineHeight: 1.6 }}>
+          This is an agent session — it has no TTY of its own. Clicking below spawns the
+          adapter&apos;s own CLI resumed on this conversation as a new interactive PTY session.
+        </p>
+
+        {/* Session info */}
+        <div
+          style={{
+            background: "#111",
+            border: "1px solid #1a1a1a",
+            borderRadius: 4,
+            padding: "8px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          {[
+            ["adapter", session.adapterSlug ?? "—"],
+            ["session id", session.adapterSessionId ?? "—"],
+            ["cwd", session.cwd ?? "—"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", gap: 8 }}>
+              <span style={{ ...mono, fontSize: 10, color: "#4b5563", width: 80, flexShrink: 0 }}>{k}</span>
+              <span
+                style={{
+                  ...mono,
+                  fontSize: 10,
+                  color: "#9ca3af",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {v}
+              </span>
+            </div>
+          ))}
+          {!disabled && (
+            <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+              <span style={{ ...mono, fontSize: 10, color: "#4b5563", width: 80, flexShrink: 0 }}>argv</span>
+              <span style={{ ...mono, fontSize: 10, color: "#22d3ee" }}>
+                {resume.argv.join(" ")}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Disabled reason */}
+        {disabled && (
+          <div
+            style={{
+              ...mono,
+              fontSize: 10,
+              color: "#f87171",
+              background: "#1a0a0a",
+              border: "1px solid #3a1a1a",
+              borderRadius: 4,
+              padding: "6px 10px",
+            }}
+          >
+            {resume.reason}
+          </div>
+        )}
+
+        {/* Error */}
+        {err && (
+          <div
+            style={{
+              ...mono,
+              fontSize: 10,
+              color: "#f87171",
+              wordBreak: "break-word",
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        {/* Launch button */}
+        <button
+          onClick={() => void handleResume()}
+          disabled={disabled || launching}
+          style={{
+            ...mono,
+            fontSize: 12,
+            padding: "8px 16px",
+            borderRadius: 4,
+            border: `1px solid ${disabled || launching ? "#2a2a2a" : "#22d3ee40"}`,
+            background: disabled || launching ? "#1a1a1a" : "#0e2233",
+            color: disabled || launching ? "#4b5563" : "#22d3ee",
+            cursor: disabled || launching ? "not-allowed" : "pointer",
+            alignSelf: "flex-start",
+          }}
+        >
+          {launching ? "spawning…" : "↗ open TUI session"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PanelPage
 // ---------------------------------------------------------------------------
 
@@ -215,6 +427,8 @@ export default function PanelPage() {
   const daemon = useDaemon()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<TabId>("chat")
+  // When true, the /events endpoint returned 404 for this session — fall back to export polling.
+  const [chatFallback, setChatFallback] = useState(false)
 
   const selected = daemon.sessions.find(s => s.id === selectedId) ?? null
 
@@ -225,14 +439,17 @@ export default function PanelPage() {
     }
   }, [daemon.sessions, selectedId])
 
-  // Default tab: Terminal for PTY sessions, Chat for others
+  // Default tab: Terminal for PTY sessions, Chat for others. Reset fallback on session change.
   useEffect(() => {
     if (selected) {
       setTab(selected.pty === true ? "terminal" : "chat")
+      setChatFallback(false)
     }
   }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleCreateTerminal: Parameters<typeof TerminalLauncher>[0]["onCreate"] = async (params) => {
+  const handleEventsNotSupported = useCallback(() => setChatFallback(true), [])
+
+  const handleCreateTerminal = async (params: CreateTerminalParams) => {
     const result = await daemon.createTerminalSession(params)
     if (result.ok) {
       setSelectedId(result.session.id)
@@ -240,6 +457,11 @@ export default function PanelPage() {
     }
     return result
   }
+
+  const handleTtyCreated = useCallback((newSessionId: string) => {
+    setSelectedId(newSessionId)
+    setTab("tty")
+  }, [])
 
   return (
     <div
@@ -359,7 +581,7 @@ export default function PanelPage() {
                   paddingLeft: 8,
                 }}
               >
-                {(["terminal", "chat", "json"] as TabId[]).map(t => (
+                {(["terminal", "chat", "json", "tty"] as TabId[]).map(t => (
                   <button
                     key={t}
                     onClick={() => setTab(t)}
@@ -393,12 +615,22 @@ export default function PanelPage() {
                   />
                 )}
                 {tab === "chat" && (
-                  <SessionChatView
-                    key={selected.id}
-                    daemonUrl={daemon.url!}
-                    sessionId={selected.id}
-                    sessionStatus={selected.status}
-                  />
+                  chatFallback ? (
+                    <SessionChatView
+                      key={selected.id}
+                      daemonUrl={daemon.url!}
+                      sessionId={selected.id}
+                      sessionStatus={selected.status}
+                    />
+                  ) : (
+                    <SessionEventsView
+                      key={selected.id}
+                      daemonUrl={daemon.url!}
+                      sessionId={selected.id}
+                      sessionStatus={selected.status}
+                      onNotSupported={handleEventsNotSupported}
+                    />
+                  )
                 )}
                 {tab === "json" && (
                   <SessionJsonView
@@ -406,6 +638,15 @@ export default function PanelPage() {
                     daemonUrl={daemon.url!}
                     sessionId={selected.id}
                     sessionStatus={selected.status}
+                  />
+                )}
+                {tab === "tty" && (
+                  <TtyTabContent
+                    key={selected.id}
+                    daemonUrl={daemon.url!}
+                    session={selected}
+                    onCreate={daemon.createTerminalSession}
+                    onCreated={handleTtyCreated}
                   />
                 )}
               </div>
