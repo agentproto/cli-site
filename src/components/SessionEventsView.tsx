@@ -232,7 +232,7 @@ function buildRenderItems(events: SessionEvent[]): RenderItem[] {
       case "tool-call": {
         const item: ToolPairItem = {
           kind: "tool-pair",
-          id: ev.toolCallId,
+          id: `tool-${ev.toolCallId}`,
           call: ev,
           result: null,
           turnOpen,
@@ -336,13 +336,10 @@ function groupToolPairs(items: RenderItem[]): RenderItem[] {
       i++
     }
     if (run.length === 1) {
-      // Single tool — still emit as ToolGroupItem so ToolGroupRow handles it
-      // (no wrapper around existing ToolPairRow — but we do want no label, so emit as-is)
-      // Actually: emit as ToolGroupItem with 1 pair so the group header logic handles it cleanly
       const only = run[0]!
       out.push({
         kind: "tool-group",
-        id: only.id,
+        id: `tg-${only.id}`,
         pairs: run,
         growing: only.result === null && only.turnOpen,
       })
@@ -351,7 +348,7 @@ function groupToolPairs(items: RenderItem[]): RenderItem[] {
       const last = run[run.length - 1]!
       out.push({
         kind: "tool-group",
-        id: first.id,
+        id: `tg-${first.id}`,
         pairs: run,
         growing: last.result === null && last.turnOpen,
       })

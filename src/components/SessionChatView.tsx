@@ -84,12 +84,16 @@ function cleanToolText(raw: string): string {
 /** A single non-tool message, passed through as-is. */
 interface SingleMessage {
   kind: "single"
+  /** Index of this message in the original array — stable across polls for keying. */
+  firstIdx: number
   msg: ExportedMessage
 }
 
 /** A run of consecutive role:"tool" messages (streaming output chunks) with the same toolName. */
 interface ToolGroup {
   kind: "tool-group"
+  /** Index of first chunk in the original array — stable across polls for keying. */
+  firstIdx: number
   toolName: string
   chunks: ExportedMessage[]
 }
@@ -132,7 +136,7 @@ function groupMessages(messages: ExportedMessage[]): MessageItem[] {
     const msg = messages[i]
     if (msg === undefined) { i++; continue }
     if (msg.role !== "tool") {
-      pass1.push({ item: { kind: "single", msg }, origIdx: i })
+      pass1.push({ item: { kind: "single", firstIdx: i, msg }, origIdx: i })
       i++
       continue
     }
@@ -149,7 +153,7 @@ function groupMessages(messages: ExportedMessage[]): MessageItem[] {
       chunks.push(next)
       i++
     }
-    pass1.push({ item: { kind: "tool-group", toolName: groupName, chunks }, origIdx: firstIdx })
+    pass1.push({ item: { kind: "tool-group", firstIdx, toolName: groupName, chunks }, origIdx: firstIdx })
   }
 
   // Pass 2: coalesce consecutive pure-tool-dispatch assistant SingleMessages
@@ -911,21 +915,21 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
           </div>
         )}
 
-        {groupMessages(messages).map((item, i) => {
+        {groupMessages(messages).map(item => {
           if (item.kind === "tool-group") {
-            return <ToolGroupBlock key={i} group={item} />
+            return <ToolGroupBlock key={`tg-${item.firstIdx}`} group={item} />
           }
           if (item.kind === "assistant-tool-group") {
             return (
               <AssistantToolGroupBlock
-                key={item.firstIdx}
+                key={`atg-${item.firstIdx}`}
                 group={item}
                 expanded={groupExpanded.get(item.firstIdx) ?? false}
                 onToggle={handleGroupToggle}
               />
             )
           }
-          return <MessageBubble key={i} msg={item.msg} />
+          return <MessageBubble key={`msg-${item.firstIdx}`} msg={item.msg} />
         })}
       </div>
 
