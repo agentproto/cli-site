@@ -15,31 +15,31 @@ interface BaseEvent {
 
 export interface UserPromptEvent extends BaseEvent {
   kind: "user-prompt"
-  text: string
+  text: unknown   // wire value — coerce with toDisplayText before rendering
 }
 
 export interface TextDeltaEvent extends BaseEvent {
   kind: "text-delta"
-  text: string
+  text: unknown   // wire value — coerce with toDisplayText before rendering
   partial?: boolean
 }
 
 export interface ThoughtEvent extends BaseEvent {
   kind: "thought"
-  text: string
+  text: unknown   // wire value — coerce with toDisplayText before rendering
 }
 
 export interface ToolCallEvent extends BaseEvent {
   kind: "tool-call"
   toolCallId: string
   toolName: string
-  arguments: Record<string, unknown>
+  arguments: unknown   // wire value: usually Record<string,unknown> but may be anything
 }
 
 export interface ToolResultEvent extends BaseEvent {
   kind: "tool-result"
   toolCallId: string
-  result: string
+  result: unknown   // wire value: may be string, object, ACP content-block array, etc.
 }
 
 export interface PlanEntry {
@@ -67,7 +67,7 @@ export interface UsageUpdateEvent extends BaseEvent {
 
 export interface TurnEndEvent extends BaseEvent {
   kind: "turn-end"
-  reason: string
+  reason: unknown   // wire value — coerce with toDisplayText before rendering
 }
 
 export type SessionEvent =

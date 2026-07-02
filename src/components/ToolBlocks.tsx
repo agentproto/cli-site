@@ -19,12 +19,45 @@ const CARD: React.CSSProperties = {
 }
 
 // ---------------------------------------------------------------------------
-// ANSI / CR cleaning (shared with SessionChatView)
+// Wire-boundary coercion + ANSI / CR cleaning
 // ---------------------------------------------------------------------------
 
-export function cleanToolText(raw: string): string {
+/**
+ * Safely coerce an untrusted wire value to a display string.
+ *
+ * - string                      → as-is
+ * - ACP content-block array     → join .text of entries that have a string .text
+ * - number | boolean            → String(value)
+ * - null | undefined            → ""
+ * - any other object / array    → JSON.stringify (fallback String)
+ */
+export function toDisplayText(value: unknown): string {
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (Array.isArray(value)) {
+    // ACP-style content-block array: [{type:"text", text:"…"}, …]
+    const parts = value
+      .filter((item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && "text" in item && typeof (item as Record<string, unknown>)["text"] === "string"
+      )
+      .map(item => (item as Record<string, unknown>)["text"] as string)
+    if (parts.length > 0) return parts.join("")
+    // Fallback: JSON of the whole array
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+/** Strip ANSI escapes, orphaned color codes, and collapse carriage-return rewrites.
+ *  Accepts any wire value and normalises it first via toDisplayText. */
+export function cleanToolText(raw: unknown): string {
+  const s0 = toDisplayText(raw)
   // eslint-disable-next-line no-control-regex
-  let s = raw.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+  let s = s0.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
   s = s.replace(/\[[0-9;]*m/g, "")
   s = s
     .split("\n")
@@ -34,6 +67,29 @@ export function cleanToolText(raw: string): string {
     })
     .join("\n")
   return s
+}
+
+// ---------------------------------------------------------------------------
+// Argument coercion — wire value may be anything; normalise to an object map
+// ---------------------------------------------------------------------------
+
+function toArgsRecord(raw: unknown): Record<string, unknown> {
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>
+  }
+  if (typeof raw === "string") {
+    // Some daemons serialise arguments as a JSON string
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      // not JSON — wrap as { _raw: value }
+    }
+    return { _raw: raw }
+  }
+  return {}
 }
 
 // ---------------------------------------------------------------------------
@@ -225,9 +281,10 @@ interface ToolBlockProps {
 }
 
 export function BashBlock({ call, result, running }: ToolBlockProps) {
+  const args = toArgsRecord(call.arguments)
   const command =
-    (typeof call.arguments["command"] === "string" ? call.arguments["command"] : null) ??
-    firstStringArg(call.arguments) ??
+    (typeof args["command"] === "string" ? args["command"] : null) ??
+    firstStringArg(args) ??
     call.toolName
 
   const cleanedResult = useMemo(
@@ -274,7 +331,7 @@ export function BashBlock({ call, result, running }: ToolBlockProps) {
 // ---------------------------------------------------------------------------
 
 export function FileViewBlock({ call, result, running }: ToolBlockProps) {
-  const filePath = pathArg(call.arguments) ?? call.toolName
+  const filePath = pathArg(toArgsRecord(call.arguments)) ?? call.toolName
   const cleanedResult = useMemo(
     () => (result ? cleanToolText(result.result) : null),
     [result]
@@ -307,7 +364,7 @@ export function FileViewBlock({ call, result, running }: ToolBlockProps) {
 // ---------------------------------------------------------------------------
 
 export function FileEditBlock({ call, result, running }: ToolBlockProps) {
-  const filePath = pathArg(call.arguments) ?? call.toolName
+  const filePath = pathArg(toArgsRecord(call.arguments)) ?? call.toolName
   const cleanedResult = useMemo(
     () => (result ? cleanToolText(result.result) : null),
     [result]
@@ -341,12 +398,14 @@ export function FileEditBlock({ call, result, running }: ToolBlockProps) {
 // ---------------------------------------------------------------------------
 
 export function GenericToolBlock({ call, result, running }: ToolBlockProps) {
+  const args = toArgsRecord(call.arguments)
   const argsEmpty =
-    Object.keys(call.arguments).length === 0 ||
-    (Object.keys(call.arguments).length === 1 && Object.values(call.arguments)[0] === "")
+    Object.keys(args).length === 0 ||
+    (Object.keys(args).length === 1 && Object.values(args)[0] === "")
 
   const argsText = useMemo(
-    () => (argsEmpty ? null : JSON.stringify(call.arguments, null, 2)),
+    () => (argsEmpty ? null : JSON.stringify(args, null, 2)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [call.arguments, argsEmpty]
   )
 
@@ -409,7 +468,7 @@ export function ToolPairBlock({ call, result, running }: ToolBlockProps) {
 
   // Plan with entries in args
   if (/todo|plan/.test(name)) {
-    const entries = call.arguments["entries"]
+    const entries = toArgsRecord(call.arguments)["entries"]
     if (Array.isArray(entries) && entries.length > 0) {
       // Safe cast: validate shape
       const typed = (entries as unknown[]).filter(

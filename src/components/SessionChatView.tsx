@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { toDisplayText } from "@/components/ToolBlocks"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -10,8 +11,8 @@ import remarkGfm from "remark-gfm"
 
 export interface ExportedMessage {
   role: "user" | "assistant" | "tool" | "system"
-  text?: string
-  reasoning?: string
+  text?: unknown        // wire value — coerce with toDisplayText before rendering
+  reasoning?: unknown   // wire value — coerce with toDisplayText before rendering
   toolName?: string
   toolCalls?: { name: string; args: string }[]
   ts?: number
@@ -59,14 +60,13 @@ function parseCost(n: number): string {
   return `$${n.toFixed(4)}`
 }
 
-/** Strip ANSI escape sequences and collapse carriage-return progress rewrites. */
-function cleanToolText(raw: string): string {
-  // Remove full ANSI sequences: ESC[...m and ESC[...other
+/** Strip ANSI escape sequences and collapse carriage-return progress rewrites.
+ *  Accepts any wire value — normalises to string via toDisplayText first. */
+function cleanToolText(raw: unknown): string {
+  const s0 = toDisplayText(raw)
   // eslint-disable-next-line no-control-regex
-  let s = raw.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
-  // Remove orphaned color codes that lost their ESC byte (e.g. "[32m", "[0m")
+  let s = s0.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
   s = s.replace(/\[[0-9;]*m/g, "")
-  // Collapse carriage-return rewrites: keep only text after the last \r on each line
   s = s
     .split("\n")
     .map(line => {
@@ -114,10 +114,12 @@ type MessageItem = SingleMessage | ToolGroup | AssistantToolGroup
 
 /** Returns true when an assistant message has tool calls but no visible text/reasoning. */
 function isPureToolDispatch(msg: ExportedMessage): boolean {
+  const textStr = toDisplayText(msg.text)
+  const reasonStr = toDisplayText(msg.reasoning)
   return (
     msg.role === "assistant" &&
-    (!msg.text || msg.text.trim() === "") &&
-    (!msg.reasoning || msg.reasoning.trim() === "") &&
+    textStr.trim() === "" &&
+    reasonStr.trim() === "" &&
     msg.toolCalls !== undefined &&
     msg.toolCalls.length > 0
   )
@@ -521,14 +523,17 @@ function SystemNotice({ text }: { text: string }) {
 }
 
 function MessageBubble({ msg }: { msg: ExportedMessage }) {
+  const textStr = toDisplayText(msg.text)
+  const reasonStr = toDisplayText(msg.reasoning)
+
   if (msg.role === "system") {
-    return <SystemNotice text={msg.text ?? ""} />
+    return <SystemNotice text={textStr} />
   }
 
   const isUser = msg.role === "user"
   // Show role label only when there's visible text content
-  const hasText = msg.text && msg.text.trim().length > 0
-  const hasReasoning = msg.reasoning && msg.reasoning.trim().length > 0
+  const hasText = textStr.trim().length > 0
+  const hasReasoning = reasonStr.trim().length > 0
   const showLabel = hasText || hasReasoning
 
   return (
@@ -567,9 +572,9 @@ function MessageBubble({ msg }: { msg: ExportedMessage }) {
         </div>
       )}
 
-      {msg.reasoning && <ReasoningBlock text={msg.reasoning} />}
+      {hasReasoning && <ReasoningBlock text={reasonStr} />}
 
-      {msg.text && (
+      {hasText && (
         <div
           style={{
             maxWidth: "85%",
@@ -583,7 +588,7 @@ function MessageBubble({ msg }: { msg: ExportedMessage }) {
             wordBreak: "break-word",
           }}
         >
-          <MarkdownContent text={msg.text} />
+          <MarkdownContent text={textStr} />
         </div>
       )}
 

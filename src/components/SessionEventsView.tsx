@@ -12,7 +12,7 @@ import {
   type ToolResultEvent,
   type UsageCost,
 } from "@/lib/use-session-events"
-import { PlanList, ToolPairBlock } from "@/components/ToolBlocks"
+import { PlanList, ToolPairBlock, toDisplayText } from "@/components/ToolBlocks"
 
 // ---------------------------------------------------------------------------
 // Shared style helpers (match SessionChatView dark aesthetic)
@@ -207,7 +207,7 @@ function buildRenderItems(events: SessionEvent[]): RenderItem[] {
       if (!textBuf) {
         textBuf = { startSeq: ev.seq, chunks: [], partial: ev.partial ?? false }
       }
-      textBuf.chunks.push(ev.text)
+      textBuf.chunks.push(toDisplayText(ev.text))
       textBuf.partial = ev.partial ?? false
       continue
     }
@@ -220,12 +220,12 @@ function buildRenderItems(events: SessionEvent[]): RenderItem[] {
         turnOpen = true
         latestUsage = null
         planIdx = -1
-        items.push({ kind: "user", id: `user-${ev.seq}`, text: ev.text, ts: ev.ts })
+        items.push({ kind: "user", id: `user-${ev.seq}`, text: toDisplayText(ev.text), ts: ev.ts })
         break
       }
 
       case "thought": {
-        items.push({ kind: "thought", id: `thought-${ev.seq}`, text: ev.text })
+        items.push({ kind: "thought", id: `thought-${ev.seq}`, text: toDisplayText(ev.text) })
         break
       }
 
@@ -289,7 +289,7 @@ function buildRenderItems(events: SessionEvent[]): RenderItem[] {
           })
           latestUsage = null
         }
-        items.push({ kind: "turn-end", id: `turn-end-${ev.seq}`, reason: ev.reason })
+        items.push({ kind: "turn-end", id: `turn-end-${ev.seq}`, reason: toDisplayText(ev.reason) })
         // Reset plan tracking for next turn
         planIdx = -1
         break
