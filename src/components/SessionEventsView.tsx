@@ -136,6 +136,14 @@ interface ToolPairItem {
   turnOpen: boolean   // whether the turn is still open (running state indicator)
 }
 
+/** A maximal run of consecutive tool-pair items, grouped for display. */
+interface ToolGroupItem {
+  kind: "tool-group"
+  id: string              // stable: first ToolPairItem's id
+  pairs: ToolPairItem[]
+  growing: boolean        // last item in group has no result and session is still running
+}
+
 /** Plan. */
 interface PlanItem {
   kind: "plan"
@@ -159,7 +167,7 @@ interface TurnEndItem {
   reason: string
 }
 
-type RenderItem = TextItem | UserItem | ThoughtItem | ToolPairItem | PlanItem | UsageItem | TurnEndItem
+type RenderItem = TextItem | UserItem | ThoughtItem | ToolPairItem | ToolGroupItem | PlanItem | UsageItem | TurnEndItem
 
 // ---------------------------------------------------------------------------
 // buildRenderItems — pure function, converts event list → RenderItem[]
@@ -304,6 +312,71 @@ function buildRenderItems(events: SessionEvent[]): RenderItem[] {
 }
 
 // ---------------------------------------------------------------------------
+// groupToolPairs — post-process RenderItem[] to coalesce consecutive tool-pairs
+// ---------------------------------------------------------------------------
+
+function groupToolPairs(items: RenderItem[]): RenderItem[] {
+  const out: RenderItem[] = []
+  let i = 0
+  while (i < items.length) {
+    const item = items[i]
+    if (item === undefined) { i++; continue }
+    if (item.kind !== "tool-pair") {
+      out.push(item)
+      i++
+      continue
+    }
+    // Collect maximal run of consecutive tool-pair items
+    const run: ToolPairItem[] = [item]
+    i++
+    while (i < items.length) {
+      const next = items[i]
+      if (next === undefined || next.kind !== "tool-pair") break
+      run.push(next)
+      i++
+    }
+    if (run.length === 1) {
+      // Single tool — still emit as ToolGroupItem so ToolGroupRow handles it
+      // (no wrapper around existing ToolPairRow — but we do want no label, so emit as-is)
+      // Actually: emit as ToolGroupItem with 1 pair so the group header logic handles it cleanly
+      const only = run[0]!
+      out.push({
+        kind: "tool-group",
+        id: only.id,
+        pairs: run,
+        growing: only.result === null && only.turnOpen,
+      })
+    } else {
+      const first = run[0]!
+      const last = run[run.length - 1]!
+      out.push({
+        kind: "tool-group",
+        id: first.id,
+        pairs: run,
+        growing: last.result === null && last.turnOpen,
+      })
+    }
+  }
+  return out
+}
+
+// Build compact summary string: "⚒ 6 tools · Bash ×4 · Read ×2"
+function toolGroupSummary(pairs: ToolPairItem[]): string {
+  const counts = new Map<string, number>()
+  const order: string[] = []
+  for (const p of pairs) {
+    const name = p.call.toolName
+    if (!counts.has(name)) order.push(name)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const parts = order.map(n => {
+    const c = counts.get(n) ?? 1
+    return c > 1 ? `${n} ×${c}` : n
+  })
+  return `⚒ ${pairs.length} tool${pairs.length === 1 ? "" : "s"} · ${parts.join(" · ")}`
+}
+
+// ---------------------------------------------------------------------------
 // Individual render components (memoized)
 // ---------------------------------------------------------------------------
 
@@ -434,6 +507,62 @@ function ToolPairRow({ item }: { item: ToolPairItem }) {
   )
 }
 
+interface ToolGroupRowProps {
+  item: ToolGroupItem
+  expanded: boolean
+  onToggle: (id: string) => void
+}
+
+function ToolGroupRow({ item, expanded, onToggle }: ToolGroupRowProps) {
+  const summary = toolGroupSummary(item.pairs)
+  const single = item.pairs.length === 1
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      {/* Header — always visible */}
+      <button
+        onClick={() => onToggle(item.id)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          background: "none",
+          border: "none",
+          color: "#6b7280",
+          ...MONO,
+          fontSize: 10,
+          cursor: "pointer",
+          padding: "2px 0",
+          width: "100%",
+          textAlign: "left",
+        }}
+      >
+        <span style={{ fontSize: 10 }}>{expanded ? "▾" : "▸"}</span>
+        <span style={{ color: single ? "#9ca3af" : "#a78bfa" }}>{summary}</span>
+        {item.growing && (
+          <span style={{
+            color: "#22d3ee",
+            fontSize: 9,
+            animation: "none",
+            opacity: 0.7,
+          }}>
+            ▌
+          </span>
+        )}
+      </button>
+
+      {/* Expanded: individual ToolPairRows */}
+      {expanded && (
+        <div style={{ paddingLeft: 14, borderLeft: "1px solid #222", marginTop: 2 }}>
+          {item.pairs.map(p => (
+            <ToolPairRow key={p.id} item={p} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PlanRow({ item }: { item: PlanItem }) {
   return (
     <div style={{ marginBottom: 4 }}>
@@ -446,15 +575,28 @@ function PlanRow({ item }: { item: PlanItem }) {
 // RenderItemView dispatcher
 // ---------------------------------------------------------------------------
 
-function RenderItemView({ item }: { item: RenderItem }) {
+interface RenderItemViewProps {
+  item: RenderItem
+  groupExpanded: Map<string, boolean>
+  onGroupToggle: (id: string) => void
+}
+
+function RenderItemView({ item, groupExpanded, onGroupToggle }: RenderItemViewProps) {
   switch (item.kind) {
-    case "user":      return <UserBubble item={item} />
-    case "text":      return <AssistantBubble item={item} />
-    case "thought":   return <ThoughtRow item={item} />
-    case "tool-pair": return <ToolPairRow item={item} />
-    case "plan":      return <PlanRow item={item} />
-    case "usage":     return <UsageChip item={item} />
-    case "turn-end":  return <TurnEndRow item={item} />
+    case "user":       return <UserBubble item={item} />
+    case "text":       return <AssistantBubble item={item} />
+    case "thought":    return <ThoughtRow item={item} />
+    case "tool-pair":  return <ToolPairRow item={item} />
+    case "tool-group": return (
+      <ToolGroupRow
+        item={item}
+        expanded={groupExpanded.get(item.id) ?? false}
+        onToggle={onGroupToggle}
+      />
+    )
+    case "plan":       return <PlanRow item={item} />
+    case "usage":      return <UsageChip item={item} />
+    case "turn-end":   return <TurnEndRow item={item} />
   }
 }
 
@@ -548,6 +690,18 @@ export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, onNotSu
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const isRunning = sessionStatus === "running"
 
+  // Stable expansion state: Map<groupId, expanded>. Using useState(Map) so
+  // toggling forces a re-render but doesn't lose state across polls.
+  const [groupExpanded, setGroupExpanded] = useState<Map<string, boolean>>(() => new Map())
+
+  const handleGroupToggle = useCallback((id: string) => {
+    setGroupExpanded(prev => {
+      const next = new Map(prev)
+      next.set(id, !(next.get(id) ?? false))
+      return next
+    })
+  }, [])
+
   // Signal parent to fall back as soon as notSupported is confirmed.
   useEffect(() => {
     if (notSupported) onNotSupported()
@@ -555,7 +709,7 @@ export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, onNotSu
 
   // Build render items — recomputed on every events change.
   // Memoised on the events array reference — hook only mutates by replacing array.
-  const items = useMemo(() => buildRenderItems(events), [events])
+  const items = useMemo(() => groupToolPairs(buildRenderItems(events)), [events])
 
   // Scroll to bottom when items are added.
   useEffect(() => {
@@ -586,7 +740,12 @@ export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, onNotSu
         )}
 
         {items.map(item => (
-          <RenderItemView key={item.id} item={item} />
+          <RenderItemView
+            key={item.id}
+            item={item}
+            groupExpanded={groupExpanded}
+            onGroupToggle={handleGroupToggle}
+          />
         ))}
       </div>
 

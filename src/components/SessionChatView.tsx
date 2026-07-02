@@ -87,34 +87,57 @@ interface SingleMessage {
   msg: ExportedMessage
 }
 
-/** A run of consecutive tool messages coalesced into one group. */
+/** A run of consecutive role:"tool" messages (streaming output chunks) with the same toolName. */
 interface ToolGroup {
   kind: "tool-group"
   toolName: string
   chunks: ExportedMessage[]
 }
 
-type MessageItem = SingleMessage | ToolGroup
+/**
+ * A run of consecutive assistant messages that carry ONLY toolCalls (no text, no reasoning).
+ * These are tool-dispatch rows that should be collapsed into one group header.
+ * Stable group key = index of the first message in the original messages array.
+ */
+interface AssistantToolGroup {
+  kind: "assistant-tool-group"
+  /** Index of first message in the original array — stable across polls for keying. */
+  firstIdx: number
+  msgs: ExportedMessage[]
+}
+
+type MessageItem = SingleMessage | ToolGroup | AssistantToolGroup
+
+/** Returns true when an assistant message has tool calls but no visible text/reasoning. */
+function isPureToolDispatch(msg: ExportedMessage): boolean {
+  return (
+    msg.role === "assistant" &&
+    (!msg.text || msg.text.trim() === "") &&
+    (!msg.reasoning || msg.reasoning.trim() === "") &&
+    msg.toolCalls !== undefined &&
+    msg.toolCalls.length > 0
+  )
+}
 
 /**
- * Group consecutive `role:"tool"` messages with the same non-empty toolName.
- * A new group starts when toolName changes to a different non-empty name.
- * Messages with an empty/absent toolName that are role:"tool" are treated as
- * their own single-message group (toolName = "tool output").
+ * Two-pass grouping:
+ *   Pass 1: group consecutive role:"tool" chunks with same toolName.
+ *   Pass 2: group consecutive pure-tool-dispatch assistant messages.
  */
 function groupMessages(messages: ExportedMessage[]): MessageItem[] {
-  const result: MessageItem[] = []
+  // Pass 1: coalesce consecutive role:"tool" output chunks
+  const pass1: Array<{ item: SingleMessage | ToolGroup; origIdx: number }> = []
   let i = 0
   while (i < messages.length) {
     const msg = messages[i]
     if (msg === undefined) { i++; continue }
     if (msg.role !== "tool") {
-      result.push({ kind: "single", msg })
+      pass1.push({ item: { kind: "single", msg }, origIdx: i })
       i++
       continue
     }
-    // Start a tool group
     const groupName = msg.toolName && msg.toolName.trim() !== "" ? msg.toolName : "tool output"
+    const firstIdx = i
     const chunks: ExportedMessage[] = [msg]
     i++
     while (i < messages.length) {
@@ -126,9 +149,53 @@ function groupMessages(messages: ExportedMessage[]): MessageItem[] {
       chunks.push(next)
       i++
     }
-    result.push({ kind: "tool-group", toolName: groupName, chunks })
+    pass1.push({ item: { kind: "tool-group", toolName: groupName, chunks }, origIdx: firstIdx })
+  }
+
+  // Pass 2: coalesce consecutive pure-tool-dispatch assistant SingleMessages
+  const result: MessageItem[] = []
+  let j = 0
+  while (j < pass1.length) {
+    const entry = pass1[j]
+    if (entry === undefined) { j++; continue }
+    const { item, origIdx } = entry
+    if (item.kind === "single" && isPureToolDispatch(item.msg)) {
+      const groupMsgs: ExportedMessage[] = [item.msg]
+      const firstIdx = origIdx
+      j++
+      while (j < pass1.length) {
+        const next = pass1[j]
+        if (next === undefined) break
+        if (next.item.kind !== "single" || !isPureToolDispatch(next.item.msg)) break
+        groupMsgs.push(next.item.msg)
+        j++
+      }
+      result.push({ kind: "assistant-tool-group", firstIdx, msgs: groupMsgs })
+    } else {
+      result.push(item)
+      j++
+    }
   }
   return result
+}
+
+/** Build compact summary: "⚒ 6 tools · Bash ×4 · Read ×2" from AssistantToolGroup. */
+function assistantToolGroupSummary(msgs: ExportedMessage[]): string {
+  const counts = new Map<string, number>()
+  const order: string[] = []
+  for (const msg of msgs) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (!counts.has(tc.name)) order.push(tc.name)
+      counts.set(tc.name, (counts.get(tc.name) ?? 0) + 1)
+    }
+  }
+  const totalTools = [...counts.values()].reduce((a, b) => a + b, 0)
+  const parts = order.map(n => {
+    const c = counts.get(n) ?? 1
+    return c > 1 ? `${n} ×${c}` : n
+  })
+  if (parts.length === 0) return `⚒ ${msgs.length} tool dispatch${msgs.length === 1 ? "" : "es"}`
+  return `⚒ ${totalTools} tool${totalTools === 1 ? "" : "s"} · ${parts.join(" · ")}`
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +522,10 @@ function MessageBubble({ msg }: { msg: ExportedMessage }) {
   }
 
   const isUser = msg.role === "user"
+  // Show role label only when there's visible text content
+  const hasText = msg.text && msg.text.trim().length > 0
+  const hasReasoning = msg.reasoning && msg.reasoning.trim().length > 0
+  const showLabel = hasText || hasReasoning
 
   return (
     <div
@@ -465,30 +536,32 @@ function MessageBubble({ msg }: { msg: ExportedMessage }) {
         marginBottom: 10,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 3,
-          flexDirection: isUser ? "row-reverse" : "row",
-        }}
-      >
-        <span
+      {showLabel && (
+        <div
           style={{
-            fontSize: 9,
-            color: isUser ? "#22d3ee" : "#a78bfa",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 3,
+            flexDirection: isUser ? "row-reverse" : "row",
           }}
         >
-          {msg.role}
-        </span>
-        {msg.ts !== undefined && (
-          <span style={{ fontSize: 9, color: "#374151" }}>{formatTs(msg.ts)}</span>
-        )}
-      </div>
+          <span
+            style={{
+              fontSize: 9,
+              color: isUser ? "#22d3ee" : "#a78bfa",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+            }}
+          >
+            {msg.role}
+          </span>
+          {msg.ts !== undefined && (
+            <span style={{ fontSize: 9, color: "#374151" }}>{formatTs(msg.ts)}</span>
+          )}
+        </div>
+      )}
 
       {msg.reasoning && <ReasoningBlock text={msg.reasoning} />}
 
@@ -514,6 +587,51 @@ function MessageBubble({ msg }: { msg: ExportedMessage }) {
         <div style={{ maxWidth: "85%", width: "100%" }}>
           {msg.toolCalls.map((tc, i) => (
             <ToolCallBlock key={i} tc={tc} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AssistantToolGroupBlock({
+  group,
+  expanded,
+  onToggle,
+}: {
+  group: AssistantToolGroup
+  expanded: boolean
+  onToggle: (firstIdx: number) => void
+}) {
+  const summary = assistantToolGroupSummary(group.msgs)
+  const single = group.msgs.length === 1 && (group.msgs[0]?.toolCalls?.length ?? 0) === 1
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <button
+        onClick={() => onToggle(group.firstIdx)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          background: "none",
+          border: "none",
+          color: "#6b7280",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          fontSize: 10,
+          cursor: "pointer",
+          padding: "2px 0",
+          width: "100%",
+          textAlign: "left",
+        }}
+      >
+        <span>{expanded ? "▾" : "▸"}</span>
+        <span style={{ color: single ? "#9ca3af" : "#a78bfa" }}>{summary}</span>
+      </button>
+      {expanded && (
+        <div style={{ paddingLeft: 14, borderLeft: "1px solid #222", marginTop: 2 }}>
+          {group.msgs.map((msg, i) => (
+            <MessageBubble key={i} msg={msg} />
           ))}
         </div>
       )}
@@ -671,6 +789,16 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const isRunning = sessionStatus === "running"
 
+  // Stable expansion state for assistant-tool-groups, keyed by firstIdx.
+  const [groupExpanded, setGroupExpanded] = useState<Map<number, boolean>>(() => new Map())
+  const handleGroupToggle = useCallback((firstIdx: number) => {
+    setGroupExpanded(prev => {
+      const next = new Map(prev)
+      next.set(firstIdx, !(next.get(firstIdx) ?? false))
+      return next
+    })
+  }, [])
+
   const fetchTranscript = useCallback(async () => {
     try {
       let res = await fetch(
@@ -783,11 +911,22 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
           </div>
         )}
 
-        {groupMessages(messages).map((item, i) =>
-          item.kind === "tool-group"
-            ? <ToolGroupBlock key={i} group={item} />
-            : <MessageBubble key={i} msg={item.msg} />
-        )}
+        {groupMessages(messages).map((item, i) => {
+          if (item.kind === "tool-group") {
+            return <ToolGroupBlock key={i} group={item} />
+          }
+          if (item.kind === "assistant-tool-group") {
+            return (
+              <AssistantToolGroupBlock
+                key={item.firstIdx}
+                group={item}
+                expanded={groupExpanded.get(item.firstIdx) ?? false}
+                onToggle={handleGroupToggle}
+              />
+            )
+          }
+          return <MessageBubble key={i} msg={item.msg} />
+        })}
       </div>
 
       {/* Meta footer */}
