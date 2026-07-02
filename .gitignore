@@ -16,3 +16,4 @@ content/docs
 # Logs
 *.log
 .DS_Store
+*.tsbuildinfo
