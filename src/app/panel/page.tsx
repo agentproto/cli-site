@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useDaemon, type DaemonSession, type CreateTerminalParams } from "@/lib/use-daemon"
+import { useDaemon, type DaemonSession, type CreateTerminalParams, type UseDaemonResult } from "@/lib/use-daemon"
 import { SessionTerminal } from "@/components/SessionTerminal"
 import { SessionChatView, SessionJsonView } from "@/components/SessionChatView"
 import { SessionEventsView } from "@/components/SessionEventsView"
@@ -234,11 +234,13 @@ function resolveResume(
 
 function TtyTabContent({
   daemonUrl,
+  token,
   session,
   onCreate,
   onCreated,
 }: {
   daemonUrl: string
+  token?: string
   session: DaemonSession
   onCreate: (params: CreateTerminalParams) => Promise<{ ok: true; session: DaemonSession } | { ok: false; error: string }>
   onCreated: (newSessionId: string) => void
@@ -254,6 +256,7 @@ function TtyTabContent({
         daemonUrl={daemonUrl}
         sessionId={session.id}
         pty={true}
+        token={token}
       />
     )
   }
@@ -420,6 +423,177 @@ function TtyTabContent({
 }
 
 // ---------------------------------------------------------------------------
+// ConnectBar — status + connect-to-remote-daemon control
+// ---------------------------------------------------------------------------
+
+function stripScheme(u: string): string {
+  return u.replace(/^https?:\/\//, "").replace(/^wss?:\/\//, "")
+}
+
+function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
+  const [formOpen, setFormOpen] = useState(false)
+  const [urlInput, setUrlInput] = useState("")
+  const [tokenInput, setTokenInput] = useState("")
+  const [copied, setCopied] = useState(false)
+
+  const submit = () => {
+    if (!urlInput.trim()) return
+    daemon.connect({ url: urlInput.trim(), ...(tokenInput.trim() ? { token: tokenInput.trim() } : {}) })
+    setFormOpen(false)
+    setUrlInput("")
+    setTokenInput("")
+  }
+
+  // Shareable deep-link: the tunnel wss origin, no token (auth rides the
+  // trusted panel Origin). Opening it on another machine auto-connects.
+  const shareLink = (): string => {
+    if (typeof window === "undefined" || !daemon.url) return ""
+    const wss = daemon.url.replace(/^http/, "ws")
+    return `${window.location.origin}/panel?daemon=${encodeURIComponent(wss)}`
+  }
+
+  const copyLink = async () => {
+    const link = shareLink()
+    if (!link) return
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard blocked — ignore */
+    }
+  }
+
+  const btn: React.CSSProperties = {
+    fontSize: 10,
+    padding: "2px 8px",
+    border: "1px solid #333",
+    borderRadius: 4,
+    background: "transparent",
+    color: "#9ca3af",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  }
+  const input: React.CSSProperties = {
+    fontSize: 11,
+    padding: "3px 7px",
+    border: "1px solid #333",
+    borderRadius: 4,
+    background: "#0e0e10",
+    color: "#e8e8e8",
+    fontFamily: "inherit",
+    outline: "none",
+  }
+
+  return (
+    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+      {daemon.probing && <span style={{ color: "#6b7280" }}>connecting…</span>}
+
+      {!daemon.probing && daemon.url && (
+        <>
+          <span style={{ color: "#4ade80", fontSize: 10 }}>● live</span>
+          <span
+            style={{
+              fontSize: 9,
+              padding: "1px 5px",
+              borderRadius: 3,
+              border: `1px solid ${daemon.remote ? "#22d3ee40" : "#4ade8040"}`,
+              color: daemon.remote ? "#22d3ee" : "#4ade80",
+            }}
+            title={daemon.remote ? "remote daemon via tunnel" : "local daemon on this machine"}
+          >
+            {daemon.remote ? "remote" : "local"}
+          </span>
+          <span style={{ color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+            {stripScheme(daemon.url)}
+          </span>
+          {daemon.health?.workspace && (
+            <span style={{ color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+              · {daemon.health.workspace.split("/").slice(-2).join("/")}
+            </span>
+          )}
+          {daemon.remote && (
+            <button style={btn} onClick={copyLink} title="Copy a shareable link to this daemon">
+              {copied ? "copied ✓" : "copy link"}
+            </button>
+          )}
+          {daemon.remote && (
+            <button style={btn} onClick={daemon.disconnect} title="Disconnect and fall back to the local daemon">
+              use local
+            </button>
+          )}
+        </>
+      )}
+
+      {!daemon.probing && !daemon.url && (
+        <span style={{ color: "#f87171", fontSize: 11 }}>
+          {daemon.remote
+            ? `unreachable${daemon.error ? ` · ${daemon.error}` : ""}`
+            : "no local daemon · agentproto serve"}
+        </span>
+      )}
+
+      <button style={btn} onClick={() => setFormOpen(o => !o)}>
+        {formOpen ? "close" : "connect ▾"}
+      </button>
+
+      {formOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            right: 0,
+            zIndex: 20,
+            width: 340,
+            padding: 12,
+            border: "1px solid #333",
+            borderRadius: 8,
+            background: "#0e0e10",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ color: "#9ca3af", fontSize: 10 }}>
+            Connect to a remote daemon over its tunnel (wss/https). Token is optional —
+            the hosted panel is a trusted origin.
+          </div>
+          <input
+            style={input}
+            placeholder="wss://agentproto-local.example.com"
+            value={urlInput}
+            onChange={e => setUrlInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") submit() }}
+            autoFocus
+            spellCheck={false}
+          />
+          <input
+            style={input}
+            placeholder="token (optional)"
+            value={tokenInput}
+            onChange={e => setTokenInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") submit() }}
+            type="password"
+            spellCheck={false}
+          />
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button style={btn} onClick={() => setFormOpen(false)}>cancel</button>
+            <button
+              style={{ ...btn, borderColor: "#22d3ee40", color: "#22d3ee" }}
+              onClick={submit}
+              disabled={!urlInput.trim()}
+            >
+              connect
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PanelPage
 // ---------------------------------------------------------------------------
 
@@ -491,33 +665,7 @@ export default function PanelPage() {
         </span>
         <span style={{ color: "#6b7280" }}>sessions</span>
 
-        {daemon.probing && (
-          <span style={{ color: "#6b7280", marginLeft: "auto" }}>probing daemon…</span>
-        )}
-
-        {!daemon.probing && !daemon.url && (
-          <span style={{ color: "#f87171", marginLeft: "auto" }}>
-            daemon not running · start with{" "}
-            <code style={{ color: "#e8e8e8" }}>agentproto serve</code>
-          </span>
-        )}
-
-        {daemon.url && (
-          <>
-            <span style={{ color: "#4ade80", fontSize: 10 }}>● live</span>
-            <span style={{ color: "#6b7280" }}>{daemon.url.replace("http://", "")}</span>
-            {daemon.health?.workspace && (
-              <span style={{ color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>
-                · {daemon.health.workspace.split("/").slice(-2).join("/")}
-              </span>
-            )}
-            {daemon.error && (
-              <span style={{ color: "#f87171", marginLeft: "auto" }}>
-                sync error: {daemon.error}
-              </span>
-            )}
-          </>
-        )}
+        <ConnectBar daemon={daemon} />
       </div>
 
       {/* Body */}
@@ -612,6 +760,7 @@ export default function PanelPage() {
                     daemonUrl={daemon.url!}
                     sessionId={selected.id}
                     pty={selected.pty === true}
+                    token={daemon.token ?? undefined}
                   />
                 )}
                 {tab === "chat" && (
@@ -644,6 +793,7 @@ export default function PanelPage() {
                   <TtyTabContent
                     key={selected.id}
                     daemonUrl={daemon.url!}
+                    token={daemon.token ?? undefined}
                     session={selected}
                     onCreate={daemon.createTerminalSession}
                     onCreated={handleTtyCreated}
