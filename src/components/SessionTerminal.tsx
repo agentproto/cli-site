@@ -98,7 +98,7 @@ export function SessionTerminal({ daemonUrl, sessionId, pty, token, className }:
       term.clear()
       cleanup = pty
         ? attachPty({ term, fit: fitRef.current, daemonUrl, sessionId, token })
-        : attachSse({ term, daemonUrl, sessionId })
+        : attachSse({ term, daemonUrl, sessionId, token })
     }
 
     start()
@@ -224,15 +224,22 @@ function attachSse({
   term,
   daemonUrl,
   sessionId,
+  token,
 }: {
   term: XTerminal
   daemonUrl: string
   sessionId: string
+  token?: string
 }): () => void {
   const dim = "\x1b[2m", reset = "\x1b[0m"
   term.writeln(`${dim}── attached to ${sessionId} (${daemonUrl}) ──${reset}`)
+  // The SSE stream is read-only and ungated, so a token isn't required — but
+  // an EventSource can't set an Authorization header, so we thread it via the
+  // query string (same `?token=` the WS path uses) to stay correct if a daemon
+  // ever gates the stream.
+  const streamQs = token ? `?token=${encodeURIComponent(token)}` : ""
   const src = new EventSource(
-    `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/stream`,
+    `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/stream${streamQs}`,
     { withCredentials: true }
   )
   src.onmessage = ev => {
