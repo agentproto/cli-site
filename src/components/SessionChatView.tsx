@@ -125,9 +125,24 @@ function isPureToolDispatch(msg: ExportedMessage): boolean {
   )
 }
 
+/** Returns true when an assistant message carries ONLY reasoning (no text, no tool calls). */
+function isReasoningOnly(msg: ExportedMessage): boolean {
+  const textStr = toDisplayText(msg.text)
+  const reasonStr = toDisplayText(msg.reasoning)
+  return (
+    msg.role === "assistant" &&
+    textStr.trim() === "" &&
+    reasonStr.trim() !== "" &&
+    (msg.toolCalls === undefined || msg.toolCalls.length === 0)
+  )
+}
+
 /**
- * Two-pass grouping:
+ * Three-pass grouping:
  *   Pass 1: group consecutive role:"tool" chunks with same toolName.
+ *   Pass 1.5: merge consecutive reasoning-only assistant messages (separate agentic
+ *     steps that produced only a reasoning delta before any text/tool-call) into one
+ *     message with concatenated reasoning, so they render as a single collapsed block.
  *   Pass 2: group consecutive pure-tool-dispatch assistant messages.
  */
 function groupMessages(messages: ExportedMessage[]): MessageItem[] {
@@ -158,19 +173,51 @@ function groupMessages(messages: ExportedMessage[]): MessageItem[] {
     pass1.push({ item: { kind: "tool-group", firstIdx, toolName: groupName, chunks }, origIdx: firstIdx })
   }
 
+  // Pass 1.5: merge consecutive reasoning-only assistant SingleMessages into one,
+  // concatenating their reasoning text (joined with a blank line between steps).
+  const pass15: Array<{ item: SingleMessage | ToolGroup; origIdx: number }> = []
+  let k = 0
+  while (k < pass1.length) {
+    const entry = pass1[k]
+    if (entry === undefined) { k++; continue }
+    if (entry.item.kind === "single" && isReasoningOnly(entry.item.msg)) {
+      const first = entry.item.msg
+      const reasonParts: string[] = [toDisplayText(first.reasoning)]
+      let lastMsg = first
+      k++
+      while (k < pass1.length) {
+        const next = pass1[k]
+        if (next === undefined) break
+        if (next.item.kind !== "single" || !isReasoningOnly(next.item.msg)) break
+        reasonParts.push(toDisplayText(next.item.msg.reasoning))
+        lastMsg = next.item.msg
+        k++
+      }
+      const merged: ExportedMessage = {
+        ...first,
+        reasoning: reasonParts.join("\n\n"),
+        ts: lastMsg.ts ?? first.ts,
+      }
+      pass15.push({ item: { kind: "single", firstIdx: entry.origIdx, msg: merged }, origIdx: entry.origIdx })
+    } else {
+      pass15.push(entry)
+      k++
+    }
+  }
+
   // Pass 2: coalesce consecutive pure-tool-dispatch assistant SingleMessages
   const result: MessageItem[] = []
   let j = 0
-  while (j < pass1.length) {
-    const entry = pass1[j]
+  while (j < pass15.length) {
+    const entry = pass15[j]
     if (entry === undefined) { j++; continue }
     const { item, origIdx } = entry
     if (item.kind === "single" && isPureToolDispatch(item.msg)) {
       const groupMsgs: ExportedMessage[] = [item.msg]
       const firstIdx = origIdx
       j++
-      while (j < pass1.length) {
-        const next = pass1[j]
+      while (j < pass15.length) {
+        const next = pass15[j]
         if (next === undefined) break
         if (next.item.kind !== "single" || !isPureToolDispatch(next.item.msg)) break
         groupMsgs.push(next.item.msg)
