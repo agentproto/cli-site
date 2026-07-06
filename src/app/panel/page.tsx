@@ -604,14 +604,35 @@ export default function PanelPage() {
   // When true, the /events endpoint returned 404 for this session — fall back to export polling.
   const [chatFallback, setChatFallback] = useState(false)
 
+  // `?session=<id>` deep-link — read once on mount. Resolved against the
+  // session list below as soon as it loads (it may not have loaded yet).
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("session")
+  )
+
   const selected = daemon.sessions.find(s => s.id === selectedId) ?? null
 
-  // Auto-select first session when list loads and nothing is selected yet
+  // Resolve the deep-linked session once the list is available; otherwise
+  // fall back to auto-selecting the first session, same as before.
   useEffect(() => {
-    if (!selectedId && daemon.sessions.length > 0) {
+    if (selectedId) return
+    if (pendingSessionId) {
+      const match = daemon.sessions.find(s => s.id === pendingSessionId)
+      if (match) {
+        setSelectedId(match.id)
+        setPendingSessionId(null)
+        return
+      }
+      // List loaded but doesn't contain this id — give up and fall back to the picker.
+      if (daemon.sessions.length > 0) {
+        setPendingSessionId(null)
+      }
+      return
+    }
+    if (daemon.sessions.length > 0) {
       setSelectedId(daemon.sessions[0]!.id)
     }
-  }, [daemon.sessions, selectedId])
+  }, [daemon.sessions, selectedId, pendingSessionId])
 
   // Default tab: Terminal for PTY sessions, Chat for others. Reset fallback on session change.
   useEffect(() => {
