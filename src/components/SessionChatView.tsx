@@ -773,6 +773,7 @@ function PromptInput({
       style={{
         borderTop: "1px solid #222",
         padding: "8px 12px",
+        paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
