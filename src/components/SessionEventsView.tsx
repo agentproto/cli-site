@@ -634,7 +634,17 @@ function PromptInput({ daemonUrl, sessionId, disabled }: { daemonUrl: string; se
   }
 
   return (
-    <div style={{ borderTop: "1px solid #222", padding: "8px 12px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+    <div
+      style={{
+        borderTop: "1px solid #222",
+        padding: "8px 12px",
+        paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
       {err && <div style={{ color: "#f87171", fontSize: 10 }}>{err}</div>}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
         <textarea

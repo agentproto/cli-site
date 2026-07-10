@@ -95,6 +95,7 @@ function TerminalLauncher({
       <div style={{ padding: "6px 10px" }}>
         <button
           onClick={() => { setOpen(o => !o); setErr(null) }}
+          className="min-h-11 md:min-h-0"
           style={{
             display: "flex",
             alignItems: "center",
@@ -133,6 +134,7 @@ function TerminalLauncher({
             onChange={e => setCmd(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="zsh"
+            className="min-h-11 md:min-h-0"
             style={{
               background: "#111",
               border: "1px solid #2a2a2a",
@@ -152,6 +154,7 @@ function TerminalLauncher({
             onChange={e => setCwd(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="~/projects/foo"
+            className="min-h-11 md:min-h-0"
             style={{
               background: "#111",
               border: "1px solid #2a2a2a",
@@ -172,6 +175,7 @@ function TerminalLauncher({
             <button
               onClick={() => void launch()}
               disabled={launching || cmd.trim() === ""}
+              className="flex min-h-11 items-center justify-center md:min-h-0"
               style={{
                 flex: 1,
                 background: launching || cmd.trim() === "" ? "#1a1a1a" : "#0e2233",
@@ -188,6 +192,7 @@ function TerminalLauncher({
             </button>
             <button
               onClick={() => { setOpen(false); setErr(null) }}
+              className="flex min-h-11 items-center justify-center md:min-h-0"
               style={{
                 background: "none",
                 border: "1px solid #2a2a2a",
@@ -403,6 +408,7 @@ function TtyTabContent({
         <button
           onClick={() => void handleResume()}
           disabled={disabled || launching}
+          className="inline-flex min-h-11 items-center justify-center md:min-h-0"
           style={{
             ...mono,
             fontSize: 12,
@@ -486,7 +492,20 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
   }
 
   return (
-    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+    <div
+      style={{
+        marginLeft: "auto",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        position: "relative",
+        flex: "1 1 auto",
+        minWidth: 0,
+        flexWrap: "wrap",
+        rowGap: 4,
+        justifyContent: "flex-end",
+      }}
+    >
       {daemon.probing && <span style={{ color: "#6b7280" }}>connecting…</span>}
 
       {!daemon.probing && daemon.url && (
@@ -545,6 +564,7 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
             right: 0,
             zIndex: 20,
             width: 340,
+            maxWidth: "calc(100vw - 32px)",
             padding: 12,
             border: "1px solid #333",
             borderRadius: 8,
@@ -603,6 +623,8 @@ export default function PanelPage() {
   const [tab, setTab] = useState<TabId>("chat")
   // When true, the /events endpoint returned 404 for this session — fall back to export polling.
   const [chatFallback, setChatFallback] = useState(false)
+  // <md only: session list renders as a full-screen drawer instead of a persistent column.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   // `?session=<id>` deep-link — read once on mount. Resolved against the
   // session list below as soon as it loads (it may not have loaded yet).
@@ -649,6 +671,7 @@ export default function PanelPage() {
     if (result.ok) {
       setSelectedId(result.session.id)
       setTab("terminal")
+      setMobileSidebarOpen(false)
     }
     return result
   }
@@ -656,6 +679,7 @@ export default function PanelPage() {
   const handleTtyCreated = useCallback((newSessionId: string) => {
     setSelectedId(newSessionId)
     setTab("tty")
+    setMobileSidebarOpen(false)
   }, [])
 
   return (
@@ -663,7 +687,7 @@ export default function PanelPage() {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
+        height: "100dvh",
         background: "#0b0b0d",
         color: "#e8e8e8",
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -679,29 +703,73 @@ export default function PanelPage() {
           padding: "8px 16px",
           borderBottom: "1px solid #222",
           flexShrink: 0,
+          minWidth: 0,
         }}
       >
-        <span style={{ fontWeight: 700, color: "#22d3ee", letterSpacing: "-0.01em" }}>
+        <button
+          onClick={() => setMobileSidebarOpen(o => !o)}
+          className="md:hidden -ml-2 flex min-h-11 min-w-11 items-center justify-center"
+          style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 18, cursor: "pointer", flexShrink: 0 }}
+          aria-label="Toggle sessions"
+        >
+          ☰
+        </button>
+        <span style={{ fontWeight: 700, color: "#22d3ee", letterSpacing: "-0.01em", flexShrink: 0 }}>
           agentproto
         </span>
-        <span style={{ color: "#6b7280" }}>sessions</span>
+        <span className="hidden md:inline" style={{ color: "#6b7280" }}>sessions</span>
+        {selected && (
+          <span
+            className="md:hidden"
+            style={{
+              color: "#6b7280",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: "35vw",
+            }}
+          >
+            {selected.label ?? selected.name ?? selected.adapterSlug ?? selected.kind}
+          </span>
+        )}
 
         <ConnectBar daemon={daemon} />
       </div>
 
       {/* Body */}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Sidebar */}
+        {/* Mobile drawer backdrop */}
+        {mobileSidebarOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/60 md:hidden"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar — persistent column ≥md, full-screen drawer <md */}
         <div
-          style={{
-            width: 260,
-            borderRight: "1px solid #222",
-            display: "flex",
-            flexDirection: "column",
-            flexShrink: 0,
-            overflowY: "auto",
-          }}
+          className={
+            (mobileSidebarOpen ? "flex " : "hidden ") +
+            "fixed inset-0 z-40 flex-col overflow-y-auto md:static md:z-auto md:flex md:w-[260px] md:flex-shrink-0"
+          }
+          style={{ borderRight: "1px solid #222", background: "#0b0b0d" }}
         >
+          {/* Drawer header — mobile only */}
+          <div
+            className="md:hidden flex items-center justify-between border-b px-3"
+            style={{ borderColor: "#1a1a1a" }}
+          >
+            <span style={{ color: "#e8e8e8", fontWeight: 700, fontSize: 13 }}>Sessions</span>
+            <button
+              onClick={() => setMobileSidebarOpen(false)}
+              className="flex min-h-11 min-w-11 items-center justify-center"
+              style={{ background: "none", border: "none", color: "#6b7280", fontSize: 16, cursor: "pointer" }}
+              aria-label="Close sessions"
+            >
+              ✕
+            </button>
+          </div>
+
           {/* Launcher — only shown when daemon is connected */}
           {daemon.url && (
             <TerminalLauncher onCreate={handleCreateTerminal} />
@@ -720,7 +788,7 @@ export default function PanelPage() {
               key={s.id}
               session={s}
               selected={s.id === selectedId}
-              onSelect={() => setSelectedId(s.id)}
+              onSelect={() => { setSelectedId(s.id); setMobileSidebarOpen(false) }}
               onKill={() => void daemon.killSession(s.id)}
             />
           ))}
@@ -754,6 +822,7 @@ export default function PanelPage() {
                   <button
                     key={t}
                     onClick={() => setTab(t)}
+                    className="flex min-h-11 items-center justify-center md:min-h-0"
                     style={{
                       background: "none",
                       border: "none",
@@ -873,6 +942,7 @@ function SessionRow({
         {canKill && (
           <button
             onClick={e => { e.stopPropagation(); onKill() }}
+            className="flex min-h-8 min-w-8 items-center justify-center md:min-h-0 md:min-w-0"
             style={{
               fontSize: 9,
               padding: "1px 5px",
