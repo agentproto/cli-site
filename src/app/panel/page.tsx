@@ -527,7 +527,10 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
             {stripScheme(daemon.url)}
           </span>
           {daemon.health?.workspace && (
-            <span style={{ color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+            <span
+              className="hidden md:inline"
+              style={{ color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}
+            >
               · {daemon.health.workspace.split("/").slice(-2).join("/")}
             </span>
           )}
