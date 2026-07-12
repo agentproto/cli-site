@@ -22,6 +22,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Paper & Phosphor brand tokens are an identical copy in both
+      # site repos (no shared package yet — the sites build standalone
+      # in Docker). Fail fast when this copy drifts from the sibling's
+      # main branch. Skips while the sibling doesn't have the file yet.
+      - name: Brand tokens in sync with site
+        run: |
+          if curl -fsSL https://raw.githubusercontent.com/agentproto/site/main/src/app/brand.css -o /tmp/sibling-brand.css; then
+            diff -u /tmp/sibling-brand.css src/app/brand.css
+          else
+            echo "sibling brand.css not found on site main — skipping"
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
