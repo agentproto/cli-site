@@ -24,14 +24,27 @@ jobs:
 
       # Paper & Phosphor brand tokens are an identical copy in both
       # site repos (no shared package yet — the sites build standalone
-      # in Docker). Fail fast when this copy drifts from the sibling's
-      # main branch. Skips while the sibling doesn't have the file yet.
+      # in Docker). Fail fast when this copy drifts from the sibling.
+      # Coordinated changes: open the sibling PR from the SAME branch
+      # name — the check prefers that branch over main. On main pushes
+      # the check is warning-only (the sibling may merge seconds later).
       - name: Brand tokens in sync with site
         run: |
-          if curl -fsSL https://raw.githubusercontent.com/agentproto/site/main/src/app/brand.css -o /tmp/sibling-brand.css; then
-            diff -u /tmp/sibling-brand.css src/app/brand.css
+          BRANCH="${{ github.head_ref }}"
+          URL_BASE="https://raw.githubusercontent.com/agentproto/site"
+          if [ -n "$BRANCH" ] && curl -fsSL "$URL_BASE/$BRANCH/src/app/brand.css" -o /tmp/sibling-brand.css; then
+            echo "comparing against site@$BRANCH"
+          elif curl -fsSL "$URL_BASE/main/src/app/brand.css" -o /tmp/sibling-brand.css; then
+            echo "comparing against site@main"
           else
-            echo "sibling brand.css not found on site main — skipping"
+            echo "sibling brand.css not found — skipping"; exit 0
+          fi
+          if ! diff -u /tmp/sibling-brand.css src/app/brand.css; then
+            if [ "${{ github.event_name }}" = "push" ]; then
+              echo "::warning::brand.css drifted from site (sibling merge may be in flight)"
+            else
+              exit 1
+            fi
           fi
 
       - name: Setup pnpm

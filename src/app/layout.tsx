@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Serif } from "next/font/google"
+import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google"
 import { RootProvider } from "fumadocs-ui/provider/next"
 import { BrandRibbon } from "@/components/brand-ribbon"
 import "./global.css"
@@ -14,11 +14,11 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "600"],
   variable: "--font-plex-mono",
 })
-const plexSerif = IBM_Plex_Serif({
+const display = Newsreader({
   subsets: ["latin"],
   weight: ["600", "700"],
   style: ["normal", "italic"],
-  variable: "--font-plex-serif",
+  variable: "--font-display",
 })
 
 export const metadata: Metadata = {
@@ -47,7 +47,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}
+      className={`${plexSans.variable} ${plexMono.variable} ${display.variable}`}
     >
       <body className="flex flex-col min-h-screen">
         <RootProvider>
