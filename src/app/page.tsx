@@ -22,6 +22,12 @@ const PATHS = [
     body: "Compose a substrate + dispatcher + participants in a manifest. Kernel-routed, plugin-extensible.",
     href: "/docs/verbs/run-swarm",
   },
+  {
+    cmd: "agentproto mcp-bridge",
+    title: "Plug into Claude Code",
+    body: "The daemon is an MCP server — HTTP transport for Claude Code, bundled stdio bridge for Codex, Cursor, Claude Desktop.",
+    href: "/docs/guides/mcp-in-coding-cli",
+  },
 ]
 
 /**
@@ -127,7 +133,7 @@ export default function Home(): React.ReactElement {
 
       {/* ── 3. Three paths ──────────────────────────────────────── */}
       <section className="mt-20 border-t border-fd-border pt-14">
-        <div className="grid gap-10 md:grid-cols-3">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           {PATHS.map(p => (
             <Link
               key={p.cmd}
