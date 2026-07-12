@@ -1,6 +1,24 @@
 import type { Metadata } from "next"
+import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Serif } from "next/font/google"
 import { RootProvider } from "fumadocs-ui/provider/next"
 import "./global.css"
+
+const plexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-sans",
+})
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  variable: "--font-plex-mono",
+})
+const plexSerif = IBM_Plex_Serif({
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-plex-serif",
+})
 
 export const metadata: Metadata = {
   title: {
@@ -8,12 +26,11 @@ export const metadata: Metadata = {
     template: "%s — agentproto CLI",
   },
   description:
-    "Reference host for AgentProto agent-CLI adapters. Install adapters, run a single turn or a persistent session, expose them as a daemon, orchestrate multi-agent swarms.",
+    "The agentproto binary: install adapters, run a single turn or a persistent session, serve a daemon, watch everything live in the panel.",
   metadataBase: new URL("https://cli.agentproto.sh"),
   openGraph: {
     title: "agentproto CLI",
-    description:
-      "The `agentproto` binary — install, run, orchestrate AgentProto agent-CLI adapters.",
+    description: "Install it. Run an agent. Watch it live.",
     url: "https://cli.agentproto.sh",
     siteName: "agentproto CLI",
     type: "website",
@@ -26,7 +43,11 @@ export default function RootLayout({
   children: React.ReactNode
 }): React.ReactElement {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}
+    >
       <body className="flex flex-col min-h-screen">
         <RootProvider>
           <div className="flex-1">{children}</div>

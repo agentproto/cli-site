@@ -15,6 +15,10 @@ export default function Layout({
       }}
       links={[
         {
+          text: "Panel",
+          url: "/panel",
+        },
+        {
           text: "GitHub",
           url: "https://github.com/agentproto/ts",
           external: true,
