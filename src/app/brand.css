@@ -5,8 +5,8 @@
    src/app/brand.css. CI diffs this file against the sibling repo's
    main branch — edit BOTH repos or the check fails.
 
-   The page is an engineering document: cool paper, ink, ultramarine
-   accent, IBM Plex serif display. The dark terminal panels are the
+   The page is an engineering document: cool paper, ink, azure
+   accent (IBM Blue), Newsreader display. The dark terminal panels are the
    only place the phosphor green / amber status colors appear — the
    paper ↔ phosphor contrast IS the brand ("the spec is a document,
    the daemon is alive"). Terminal tokens are theme-invariant.
@@ -15,7 +15,7 @@
 @theme inline {
   --font-sans: var(--font-plex-sans), system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  --font-serif: var(--font-plex-serif), Charter, Georgia, serif;
+  --font-serif: var(--font-display), Charter, Georgia, serif;
 }
 
 :root {
@@ -28,13 +28,13 @@
   --color-fd-card: #ffffff;
   --color-fd-card-foreground: #171a1e;
   --color-fd-border: #dde0da;
-  --color-fd-primary: #2c46d8;
+  --color-fd-primary: #0f62fe;
   --color-fd-primary-foreground: #ffffff;
   --color-fd-secondary: #e9ebe6;
   --color-fd-secondary-foreground: #171a1e;
-  --color-fd-accent: #e7eaf9;
-  --color-fd-accent-foreground: #1b2b90;
-  --color-fd-ring: #2c46d8;
+  --color-fd-accent: #e0eaff;
+  --color-fd-accent-foreground: #0043ce;
+  --color-fd-ring: #0f62fe;
 
   /* runtime island — theme-invariant */
   --term-bg: #0d1512;
@@ -55,13 +55,13 @@
   --color-fd-card: #16191d;
   --color-fd-card-foreground: #e8eaed;
   --color-fd-border: #272c33;
-  --color-fd-primary: #8296ff;
-  --color-fd-primary-foreground: #10141f;
+  --color-fd-primary: #4589ff;
+  --color-fd-primary-foreground: #0c1420;
   --color-fd-secondary: #1b1f24;
   --color-fd-secondary-foreground: #e8eaed;
-  --color-fd-accent: #232a3d;
-  --color-fd-accent-foreground: #c9d2ff;
-  --color-fd-ring: #8296ff;
+  --color-fd-accent: #1c2b47;
+  --color-fd-accent-foreground: #a6c8ff;
+  --color-fd-ring: #4589ff;
 }
 
 /* ── status blink (running dots, hero cursor) ──────────────────── */
