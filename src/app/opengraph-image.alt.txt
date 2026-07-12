@@ -1,0 +1,1 @@
+agentproto CLI — install it, run an agent, watch it live. A terminal running npm install, agentproto serve, and a session start.
