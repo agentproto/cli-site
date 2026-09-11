@@ -10,6 +10,15 @@ on:
   # rebuild. Configure via a follow-up workflow in the ts repo.
   repository_dispatch:
     types: [content-changed]
+  # Stopgap for the above: the ts-side dispatch sender was never built
+  # (confirmed absent from agentproto/ts's .github/workflows), so a
+  # docs/cli/ change there currently triggers nothing here at all — this
+  # site's last deploy (2026-07-13) already predates a getting-started.md
+  # rewrite that landed 4 days later, and nothing since has closed that
+  # gap. A daily rebuild bounds the staleness to <24h even while the real
+  # dispatch sender is unbuilt; it's not a substitute for it.
+  schedule:
+    - cron: '0 13 * * *'
 
 concurrency:
   group: deploy-${{ github.ref }}
