@@ -10,6 +10,11 @@
    only place the phosphor green / amber status colors appear — the
    paper ↔ phosphor contrast IS the brand ("the spec is a document,
    the daemon is alive"). Terminal tokens are theme-invariant.
+
+   Danger is IBM Carbon Red 60/50 — the counterpart of the Blue 60/50
+   accent, so failure reads as the same family as the primary. `--crimson`
+   is its terminal-island twin (failed runs inside a dark panel), sitting
+   beside --phos (ok) and --amber (pending) and, like them, theme-invariant.
    ═══════════════════════════════════════════════════════════════════ */
 
 @theme inline {
@@ -35,6 +40,8 @@
   --color-fd-accent: #e0eaff;
   --color-fd-accent-foreground: #0043ce;
   --color-fd-ring: #0f62fe;
+  --color-fd-danger: #da1e28;
+  --color-fd-danger-foreground: #ffffff;
 
   /* runtime island — theme-invariant */
   --term-bg: #0d1512;
@@ -43,6 +50,7 @@
   --term-dim: #6d7f76;
   --phos: #3edc81;
   --amber: #f0b429;
+  --crimson: #fa4d56;
 }
 
 .dark {
@@ -62,6 +70,8 @@
   --color-fd-accent: #1c2b47;
   --color-fd-accent-foreground: #a6c8ff;
   --color-fd-ring: #4589ff;
+  --color-fd-danger: #fa4d56;
+  --color-fd-danger-foreground: #1d0e10;
 }
 
 /* ── status blink (running dots, hero cursor) ──────────────────── */
