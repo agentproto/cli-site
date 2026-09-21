@@ -64,7 +64,6 @@ function parseCost(n: number): string {
  *  Accepts any wire value — normalises to string via toDisplayText first. */
 function cleanToolText(raw: unknown): string {
   const s0 = toDisplayText(raw)
-  // eslint-disable-next-line no-control-regex
   let s = s0.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
   s = s.replace(/\[[0-9;]*m/g, "")
   s = s
@@ -952,7 +951,7 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
             }}
           >
             <div>no structured transcript for this session</div>
-            <div style={{ fontSize: 10 }}>PTY / terminal sessions don't produce a structured export</div>
+            <div style={{ fontSize: 10 }}>PTY / terminal sessions don&apos;t produce a structured export</div>
           </div>
         )}
 

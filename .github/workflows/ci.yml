@@ -15,7 +15,7 @@ env:
 
 jobs:
   build:
-    name: Type-check + build
+    name: Lint + type-check + build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -65,6 +65,13 @@ jobs:
       # lockfile lives. CI resolves from package.json ranges.
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      # Lint ran on nothing for months: `next lint` was removed in Next 16
+      # and no eslint config existed, so `pnpm lint` just errored and no
+      # workflow called it. Wired in here so it cannot rot silently again.
+      # Source-only — needs no content sync.
+      - name: Lint
+        run: pnpm lint
 
       # `prebuild` + `pretypecheck` both run scripts/sync-content.mjs
       # which clones github.com/agentproto/ts into .cache/ at depth 1.
