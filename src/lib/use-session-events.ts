@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { daemonFetch } from "@/lib/use-daemon"
 
 // ---------------------------------------------------------------------------
 // Event type definitions
@@ -116,6 +117,7 @@ export function useSessionEvents(
   daemonUrl: string,
   sessionId: string,
   sessionStatus: string,
+  token?: string | null,
 ): UseSessionEventsResult {
   const [events, setEvents] = useState<SessionEvent[]>([])
   const [notSupported, setNotSupported] = useState(false)
@@ -141,7 +143,7 @@ export function useSessionEvents(
     if (notSupportedRef.current) return false
     const url = `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/events?since=${nextSeqRef.current}`
     try {
-      const res = await fetch(url, { mode: "cors", credentials: "include" })
+      const res = await daemonFetch(url, token)
       if (res.status === 404) {
         // Endpoint doesn't exist on this daemon version — permanent fallback.
         notSupportedRef.current = true
@@ -171,7 +173,7 @@ export function useSessionEvents(
       setLoading(false)
       return false
     }
-  }, [daemonUrl, sessionId])
+  }, [daemonUrl, sessionId, token])
 
   useEffect(() => {
     let cancelled = false

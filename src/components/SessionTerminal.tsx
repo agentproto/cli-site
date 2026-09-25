@@ -13,6 +13,7 @@ import type { Terminal as XTerminal } from "@xterm/xterm"
 import type { FitAddon as FitAddonType } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
 import { cn } from "@/lib/utils"
+import { withToken } from "@/lib/use-daemon"
 
 interface Props {
   daemonUrl: string
@@ -146,9 +147,8 @@ function attachPty({
     const cols = term.cols || 80
     const rows = term.rows || 24
     const qs = new URLSearchParams({ cols: String(cols), rows: String(rows) })
-    if (token) qs.set("token", token)
     const sock = new WebSocket(
-      `${wsBase}/sessions/${encodeURIComponent(sessionId)}/pty?${qs}`
+      withToken(`${wsBase}/sessions/${encodeURIComponent(sessionId)}/pty?${qs}`, token)
     )
     ws = sock
 
@@ -233,13 +233,12 @@ function attachSse({
 }): () => void {
   const dim = "\x1b[2m", reset = "\x1b[0m"
   term.writeln(`${dim}── attached to ${sessionId} (${daemonUrl}) ──${reset}`)
-  // The SSE stream is read-only and ungated, so a token isn't required — but
-  // an EventSource can't set an Authorization header, so we thread it via the
-  // query string (same `?token=` the WS path uses) to stay correct if a daemon
-  // ever gates the stream.
-  const streamQs = token ? `?token=${encodeURIComponent(token)}` : ""
+  // A remote daemon in bearer mode (agentproto/ts#1398) 401s this stream for
+  // any non-loopback request without the bearer — and an EventSource can't
+  // set an Authorization header, so it rides the query string instead (same
+  // `?token=` the WS path uses).
   const src = new EventSource(
-    `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/stream${streamQs}`,
+    withToken(`${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/stream`, token),
     { withCredentials: true }
   )
   src.onmessage = ev => {

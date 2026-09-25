@@ -441,6 +441,11 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
   const [urlInput, setUrlInput] = useState("")
   const [tokenInput, setTokenInput] = useState("")
   const [copied, setCopied] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  // Opt-in — a copied link with the token embedded grants full access to
+  // whoever opens it (agentproto/ts#1398: a remote daemon in bearer mode
+  // requires this exact token on every route), so it defaults off.
+  const [includeToken, setIncludeToken] = useState(false)
 
   const submit = () => {
     if (!urlInput.trim()) return
@@ -450,12 +455,18 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
     setTokenInput("")
   }
 
-  // Shareable deep-link: the tunnel wss origin, no token (auth rides the
-  // trusted panel Origin). Opening it on another machine auto-connects.
+  // Shareable deep-link: the fragment form (`#daemon=&token=`) — fragments
+  // never reach a server (no Referer, no access/proxy log, no CDN cache
+  // key), unlike the legacy `?daemon=&token=` query-string form this panel
+  // still accepts for back-compat. The token is only embedded when
+  // `includeToken` is explicitly checked; without it, whoever opens the
+  // link still needs to paste the token in themselves via "connect ▾".
   const shareLink = (): string => {
     if (typeof window === "undefined" || !daemon.url) return ""
     const wss = daemon.url.replace(/^http/, "ws")
-    return `${window.location.origin}/panel?daemon=${encodeURIComponent(wss)}`
+    const params = new URLSearchParams({ daemon: wss })
+    if (includeToken && daemon.token) params.set("token", daemon.token)
+    return `${window.location.origin}/panel#${params.toString()}`
   }
 
   const copyLink = async () => {
@@ -464,6 +475,7 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
     try {
       await navigator.clipboard.writeText(link)
       setCopied(true)
+      setShareOpen(false)
       setTimeout(() => setCopied(false), 1500)
     } catch {
       /* clipboard blocked — ignore */
@@ -535,9 +547,67 @@ function ConnectBar({ daemon }: { daemon: UseDaemonResult }) {
             </span>
           )}
           {daemon.remote && (
-            <button style={btn} onClick={copyLink} title="Copy a shareable link to this daemon">
-              {copied ? "copied ✓" : "copy link"}
-            </button>
+            <div style={{ position: "relative" }}>
+              <button
+                style={btn}
+                onClick={() => setShareOpen(o => !o)}
+                title="Copy a shareable link to this daemon"
+              >
+                {copied ? "copied ✓" : shareOpen ? "close" : "copy link ▾"}
+              </button>
+              {shareOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    right: 0,
+                    zIndex: 20,
+                    width: 260,
+                    maxWidth: "calc(100vw - 32px)",
+                    padding: 12,
+                    border: "1px solid #333",
+                    borderRadius: 8,
+                    background: "#0e0e10",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      color: "#9ca3af",
+                      fontSize: 10,
+                      cursor: daemon.token ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={includeToken}
+                      disabled={!daemon.token}
+                      onChange={e => setIncludeToken(e.target.checked)}
+                    />
+                    include access token
+                  </label>
+                  <div style={{ color: "#6b7280", fontSize: 9, lineHeight: 1.5 }}>
+                    {daemon.token
+                      ? includeToken
+                        ? "Anyone with this link gets full access to this daemon — share it only with someone you trust."
+                        : "Without the token, whoever opens this link must paste it in themselves via “connect”."
+                      : "This connection has no token to embed."}
+                  </div>
+                  <button
+                    style={{ ...btn, borderColor: "#22d3ee40", color: "#22d3ee" }}
+                    onClick={() => void copyLink()}
+                  >
+                    copy
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {daemon.remote && (
             <button style={btn} onClick={daemon.disconnect} title="Disconnect and fall back to the local daemon">
@@ -863,6 +933,7 @@ export default function PanelPage() {
                       daemonUrl={daemon.url!}
                       sessionId={selected.id}
                       sessionStatus={selected.status}
+                      token={daemon.token}
                     />
                   ) : (
                     <SessionEventsView
@@ -870,6 +941,7 @@ export default function PanelPage() {
                       daemonUrl={daemon.url!}
                       sessionId={selected.id}
                       sessionStatus={selected.status}
+                      token={daemon.token}
                       onNotSupported={handleEventsNotSupported}
                     />
                   )
@@ -880,6 +952,7 @@ export default function PanelPage() {
                     daemonUrl={daemon.url!}
                     sessionId={selected.id}
                     sessionStatus={selected.status}
+                    token={daemon.token}
                   />
                 )}
                 {tab === "tty" && (

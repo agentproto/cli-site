@@ -66,8 +66,11 @@ export interface UseDaemonResult {
   /** True when connected to an explicit (remote/tunnel) daemon rather than a
    *  locally auto-probed one. */
   remote: boolean
-  /** Bearer token for the current connection, if any. Threaded into the PTY
-   *  WebSocket + mutating POSTs; read-only GETs/SSE ride CORS ungated. */
+  /** Bearer token for the current connection, if any. Threaded through
+   *  `daemonFetch` on every fetch (as `Authorization: Bearer`) and via
+   *  `withToken` on the PTY WebSocket + SSE stream (`?token=`) — a remote
+   *  daemon in bearer mode (agentproto/ts#1398) requires it on every
+   *  non-loopback route, not just mutating ones. */
   token: string | null
   probing: boolean
   health: DaemonHealth | null
@@ -107,6 +110,41 @@ export function normalizeDaemonBase(input: string): string | null {
   }
 }
 
+/**
+ * Every daemon-facing `fetch` goes through this — after agentproto/ts#1398,
+ * a remote daemon in bearer mode 401s any non-loopback request that doesn't
+ * carry the real bearer; `Origin` (CORS) is no longer a substitute. `token`
+ * is threaded as `Authorization: Bearer <token>`; omit it (null/undefined)
+ * for a local/loopback connection or one with no token, and the request
+ * goes out exactly as before.
+ */
+export function daemonFetch(
+  url: string,
+  token: string | null | undefined,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (token) headers.set("authorization", `Bearer ${token}`)
+  return fetch(url, {
+    mode: "cors",
+    credentials: "include",
+    ...init,
+    headers,
+  })
+}
+
+/**
+ * Append `?token=<token>` (or `&token=` if `url` already has a query
+ * string) for the two transports that can't set a request header: an
+ * `EventSource` (SSE) and a `WebSocket` upgrade. No-ops when `token` is
+ * falsy. Mirrors the daemon's own `?token=` convenience
+ * (`checkSessionsToken` / the P0 tunnel-bearer gate, `packages/runtime/src/http-server.ts`).
+ */
+export function withToken(url: string, token: string | null | undefined): string {
+  if (!token) return url
+  return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
+}
+
 function readStoredConnection(): DaemonConnection | null {
   if (typeof window === "undefined") return null
   try {
@@ -126,10 +164,12 @@ function readStoredConnection(): DaemonConnection | null {
 }
 
 /**
- * Read a `?daemon=<url>&token=<token>` deep-link once on mount. The token is
- * stripped from the address bar immediately (history.replaceState) so it isn't
- * left in a shareable URL / browser history — the connection is held in state
- * + localStorage instead.
+ * Read a `?daemon=<url>&token=<token>` deep-link once on mount. Kept for
+ * back-compat — `readFragmentConnection` below is preferred (the fragment
+ * form never reaches a server, so it can't leak into access/proxy logs the
+ * way a query string can). The token is stripped from the address bar
+ * immediately (history.replaceState) so it isn't left in a shareable URL /
+ * browser history — the connection is held in state + localStorage instead.
  */
 function readLinkConnection(): DaemonConnection | null {
   if (typeof window === "undefined") return null
@@ -154,6 +194,33 @@ function readLinkConnection(): DaemonConnection | null {
   return { url: base, ...(token ? { token } : {}) }
 }
 
+/**
+ * Read a `#daemon=<url>&token=<token>` deep-link once on mount — the
+ * fragment form `remote_enable`'s `phoneUrl` uses (agentproto/ts, P1.2).
+ * Fragments are never sent to a server (no Referer, no server/proxy access
+ * log, no CDN cache key), which a `?token=` query string is exposed to — so
+ * this is the preferred link shape; `readLinkConnection`'s `?daemon=&token=`
+ * stays only for back-compat. Scrubbed from the address bar immediately via
+ * `history.replaceState`, same as the query-string form.
+ */
+function readFragmentConnection(): DaemonConnection | null {
+  if (typeof window === "undefined") return null
+  const raw = window.location.hash.replace(/^#/, "")
+  if (!raw) return null
+  const params = new URLSearchParams(raw)
+  const daemon = params.get("daemon")
+  if (!daemon) return null
+  const base = normalizeDaemonBase(daemon)
+  if (!base) return null
+  const token = params.get("token") ?? undefined
+  try {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search)
+  } catch {
+    /* ignore */
+  }
+  return { url: base, ...(token ? { token } : {}) }
+}
+
 export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
   const [url, setUrl] = useState<string | null>(null)
   const [remote, setRemote] = useState(false)
@@ -171,15 +238,11 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
   const tokenRef = useRef<string | null>(null)
   tokenRef.current = token
 
-  const authHeaders = useCallback((): Record<string, string> => {
-    const t = tokenRef.current
-    return t ? { authorization: `Bearer ${t}` } : {}
-  }, [])
-
-  // Resolve the initial connection once: deep-link wins over stored, both win
-  // over localhost auto-probe.
+  // Resolve the initial connection once: the fragment deep-link (preferred —
+  // never reaches a server) wins over the legacy query-string deep-link,
+  // both win over stored, all three win over localhost auto-probe.
   useEffect(() => {
-    setConnection(readLinkConnection() ?? readStoredConnection() ?? null)
+    setConnection(readFragmentConnection() ?? readLinkConnection() ?? readStoredConnection() ?? null)
   }, [])
 
   const connect = useCallback((input: { url: string; token?: string }) => {
@@ -223,12 +286,7 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
       try {
         const ctrl = new AbortController()
         const t = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
-        const res = await fetch(`${base}/health`, {
-          mode: "cors",
-          credentials: "include",
-          headers: tok ? { authorization: `Bearer ${tok}` } : {},
-          signal: ctrl.signal,
-        })
+        const res = await daemonFetch(`${base}/health`, tok, { signal: ctrl.signal })
         clearTimeout(t)
         if (!res.ok) return null
         return (await res.json()) as DaemonHealth
@@ -305,11 +363,7 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
     const target = urlRef.current
     if (!target) return
     try {
-      const res = await fetch(`${target}/sessions`, {
-        mode: "cors",
-        credentials: "include",
-        headers: authHeaders(),
-      })
+      const res = await daemonFetch(`${target}/sessions`, tokenRef.current)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = (await res.json()) as { sessions?: DaemonSession[] }
       setSessions(Array.isArray(body.sessions) ? body.sessions : [])
@@ -317,18 +371,15 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [authHeaders])
+  }, [])
 
   const killSession = useCallback(
     async (id: string): Promise<boolean> => {
       const target = urlRef.current
       if (!target) return false
       try {
-        const res = await fetch(`${target}/sessions/${id}/kill`, {
+        const res = await daemonFetch(`${target}/sessions/${id}/kill`, tokenRef.current, {
           method: "POST",
-          mode: "cors",
-          credentials: "include",
-          headers: authHeaders(),
         })
         const body = (await res.json().catch(() => ({}))) as { ok?: boolean }
         if (body.ok) await refresh()
@@ -337,7 +388,7 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
         return false
       }
     },
-    [refresh, authHeaders]
+    [refresh]
   )
 
   useEffect(() => {
@@ -362,11 +413,9 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
       const target = urlRef.current
       if (!target) return { ok: false, error: "daemon not connected" }
       try {
-        const res = await fetch(`${target}/sessions/terminal`, {
+        const res = await daemonFetch(`${target}/sessions/terminal`, tokenRef.current, {
           method: "POST",
-          mode: "cors",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(params),
         })
         if (res.status === 201) {
@@ -380,7 +429,7 @@ export function useDaemon(port = DEFAULT_PORT): UseDaemonResult {
         return { ok: false, error: e instanceof Error ? e.message : String(e) }
       }
     },
-    [refresh, authHeaders]
+    [refresh]
   )
 
   return {

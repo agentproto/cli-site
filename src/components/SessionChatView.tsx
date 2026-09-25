@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toDisplayText } from "@/components/ToolBlocks"
+import { daemonFetch } from "@/lib/use-daemon"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -727,10 +728,12 @@ function PromptInput({
   daemonUrl,
   sessionId,
   disabled,
+  token,
 }: {
   daemonUrl: string
   sessionId: string
   disabled: boolean
+  token?: string | null
 }) {
   const [value, setValue] = useState("")
   const [sending, setSending] = useState(false)
@@ -742,10 +745,8 @@ function PromptInput({
     setSending(true)
     setErr(null)
     try {
-      const res = await fetch(`${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/prompt`, {
+      const res = await daemonFetch(`${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/prompt`, token, {
         method: "POST",
-        mode: "cors",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: trimmed }),
       })
@@ -759,7 +760,7 @@ function PromptInput({
     } finally {
       setSending(false)
     }
-  }, [value, sending, daemonUrl, sessionId])
+  }, [value, sending, daemonUrl, sessionId, token])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -836,9 +837,11 @@ interface Props {
   daemonUrl: string
   sessionId: string
   sessionStatus: string
+  /** Bearer token for a remote/tunnel daemon connection; omitted for local. */
+  token?: string | null
 }
 
-export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) {
+export function SessionChatView({ daemonUrl, sessionId, sessionStatus, token }: Props) {
   const [transcript, setTranscript] = useState<ParsedContent | null>(null)
   const [rawExport, setRawExport] = useState<ExportResponse | null>(null)
   const [noTranscript, setNoTranscript] = useState(false)
@@ -858,15 +861,15 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
 
   const fetchTranscript = useCallback(async () => {
     try {
-      let res = await fetch(
+      let res = await daemonFetch(
         `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/export?format=json`,
-        { mode: "cors", credentials: "include" }
+        token,
       )
       if (!res.ok && (res.status === 404 || res.status === 422)) {
         // Retry with source=daemon
-        res = await fetch(
+        res = await daemonFetch(
           `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/export?format=json&source=daemon`,
-          { mode: "cors", credentials: "include" }
+          token,
         )
       }
       if (!res.ok) {
@@ -891,7 +894,7 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
         setFetchErr(e instanceof Error ? e.message : String(e))
       }
     }
-  }, [daemonUrl, sessionId])
+  }, [daemonUrl, sessionId, token])
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -995,6 +998,7 @@ export function SessionChatView({ daemonUrl, sessionId, sessionStatus }: Props) 
           daemonUrl={daemonUrl}
           sessionId={sessionId}
           disabled={!isRunning}
+          token={token}
         />
       )}
     </div>
@@ -1212,9 +1216,11 @@ interface JsonViewProps {
   daemonUrl: string
   sessionId: string
   sessionStatus: string
+  /** Bearer token for a remote/tunnel daemon connection; omitted for local. */
+  token?: string | null
 }
 
-export function SessionJsonView({ daemonUrl, sessionId, sessionStatus }: JsonViewProps) {
+export function SessionJsonView({ daemonUrl, sessionId, sessionStatus, token }: JsonViewProps) {
   const [data, setData] = useState<ExportResponse | null>(null)
   const [noTranscript, setNoTranscript] = useState(false)
   const [fetchErr, setFetchErr] = useState<string | null>(null)
@@ -1223,14 +1229,14 @@ export function SessionJsonView({ daemonUrl, sessionId, sessionStatus }: JsonVie
 
   const fetchData = useCallback(async () => {
     try {
-      let res = await fetch(
+      let res = await daemonFetch(
         `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/export?format=json`,
-        { mode: "cors", credentials: "include" }
+        token,
       )
       if (!res.ok && (res.status === 404 || res.status === 422)) {
-        res = await fetch(
+        res = await daemonFetch(
           `${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/export?format=json&source=daemon`,
-          { mode: "cors", credentials: "include" }
+          token,
         )
       }
       if (!res.ok) {
@@ -1247,7 +1253,7 @@ export function SessionJsonView({ daemonUrl, sessionId, sessionStatus }: JsonVie
     } catch (e) {
       setFetchErr(e instanceof Error ? e.message : String(e))
     }
-  }, [daemonUrl, sessionId])
+  }, [daemonUrl, sessionId, token])
 
   useEffect(() => {
     setData(null)
