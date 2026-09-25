@@ -12,6 +12,7 @@ import {
   type ToolResultEvent,
   type UsageCost,
 } from "@/lib/use-session-events"
+import { daemonFetch } from "@/lib/use-daemon"
 import { PlanList, ToolPairBlock, toDisplayText } from "@/components/ToolBlocks"
 
 // ---------------------------------------------------------------------------
@@ -601,7 +602,17 @@ function RenderItemView({ item, groupExpanded, onGroupToggle }: RenderItemViewPr
 // PromptInput (same as SessionChatView, duplicated to keep file self-contained)
 // ---------------------------------------------------------------------------
 
-function PromptInput({ daemonUrl, sessionId, disabled }: { daemonUrl: string; sessionId: string; disabled: boolean }) {
+function PromptInput({
+  daemonUrl,
+  sessionId,
+  disabled,
+  token,
+}: {
+  daemonUrl: string
+  sessionId: string
+  disabled: boolean
+  token?: string | null
+}) {
   const [value, setValue] = useState("")
   const [sending, setSending] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -612,8 +623,8 @@ function PromptInput({ daemonUrl, sessionId, disabled }: { daemonUrl: string; se
     setSending(true)
     setErr(null)
     try {
-      const res = await fetch(`${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/prompt`, {
-        method: "POST", mode: "cors", credentials: "include",
+      const res = await daemonFetch(`${daemonUrl}/sessions/${encodeURIComponent(sessionId)}/prompt`, token, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: trimmed }),
       })
@@ -627,7 +638,7 @@ function PromptInput({ daemonUrl, sessionId, disabled }: { daemonUrl: string; se
     } finally {
       setSending(false)
     }
-  }, [value, sending, daemonUrl, sessionId])
+  }, [value, sending, daemonUrl, sessionId, token])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send() }
@@ -688,12 +699,14 @@ interface Props {
   daemonUrl: string
   sessionId: string
   sessionStatus: string
+  /** Bearer token for a remote/tunnel daemon connection; omitted for local. */
+  token?: string | null
   /** Called when the events endpoint 404s so the parent can fall back to export polling. */
   onNotSupported: () => void
 }
 
-export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, onNotSupported }: Props) {
-  const { events, notSupported, loading, error } = useSessionEvents(daemonUrl, sessionId, sessionStatus)
+export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, token, onNotSupported }: Props) {
+  const { events, notSupported, loading, error } = useSessionEvents(daemonUrl, sessionId, sessionStatus, token)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const isRunning = sessionStatus === "running"
 
@@ -757,7 +770,7 @@ export function SessionEventsView({ daemonUrl, sessionId, sessionStatus, onNotSu
       </div>
 
       {/* Prompt input */}
-      <PromptInput daemonUrl={daemonUrl} sessionId={sessionId} disabled={!isRunning} />
+      <PromptInput daemonUrl={daemonUrl} sessionId={sessionId} disabled={!isRunning} token={token} />
     </div>
   )
 }
