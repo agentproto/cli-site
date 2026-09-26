@@ -11,17 +11,18 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/sync-content.mjs",
+    "predev": "node scripts/sync-content.mjs && node scripts/build-sw.mjs",
     "dev": "next dev --turbopack -p 3010",
-    "prebuild": "node scripts/sync-content.mjs",
+    "prebuild": "node scripts/sync-content.mjs && node scripts/build-sw.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "pretypecheck": "node scripts/sync-content.mjs && fumadocs-mdx",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/sw",
     "clean": "rm -rf .next .source content/docs .cache"
   },
   "dependencies": {
+    "@agentproto/pair-client": "^0.1.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
@@ -41,6 +42,7 @@
     "@types/node": "^24.12.3",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3"
   },

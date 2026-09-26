@@ -68,6 +68,45 @@ Env vars at build time:
 
 Set them when you want to publish from a fork or a non-main branch.
 
+## Phone pairing (`/pair`, `/d/<id>/`)
+
+`agentproto pair offer --qr` prints a QR for
+`https://cli.agentproto.sh/pair#<offer>`. The offer rides in the fragment,
+so it never reaches this server.
+
+- **`/pair`** reads the offer, runs the end-to-end handshake through the
+  rendezvous (`@agentproto/pair-client`), shows the daemon's name and
+  fingerprint to confirm, and stores the credential in IndexedDB (never
+  localStorage). With no offer, it lists the paired daemons.
+- **`/d/<id>`** (`<id>` = daemon fingerprint) is the state page: not paired,
+  connecting, daemon offline (retrying), revoked.
+- **`/d/<id>/…`** is answered by a service worker registered for that scope
+  (`src/sw/pair-sw.ts`, bundled by `scripts/build-sw.mjs` to
+  `public/pair-sw.js`). It holds the one tunnel to the daemon and proxies
+  every request under the scope to it. The Control Center
+  (`/d/<id>/apps/@agentik/session-chat/ui/`) and its REST, `/mcp` and SSE
+  calls all come from the daemon. cli-site serves none of it.
+
+`public/pair.webmanifest` makes it installable (add to home screen).
+
+**One origin per daemon.** Served at `https://<daemon-fingerprint>.agentproto.cloud`,
+the origin belongs to that one daemon (`src/lib/pair-host.ts`). `/pair` refuses
+offers for any other daemon, and the credential store only holds that daemon.
+Browsers isolate storage and service workers per origin, so no daemon's
+Control Center can reach another daemon's pairing. Any other host
+(cli.agentproto.sh, localhost) is a shared origin: it still works, and says
+so. The pair domain is set at build time:
+
+| Var                                   | Default            |
+| ------------------------------------- | ------------------ |
+| `NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN`  | `agentproto.cloud` |
+
+To try per-daemon origins locally, build with
+`NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN=localhost` and open
+`http://<fingerprint>.localhost:3010/pair`. Chrome resolves `*.localhost` to
+loopback and treats it as a secure context, which service workers and
+WebCrypto need.
+
 ## Structure
 
 ```

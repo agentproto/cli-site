@@ -17,3 +17,6 @@ content/docs
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# Pairing service worker bundle — built by scripts/build-sw.mjs
+public/pair-sw.js
