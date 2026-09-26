@@ -89,6 +89,24 @@ so it never reaches this server.
 
 `public/pair.webmanifest` makes it installable (add to home screen).
 
+**One origin per daemon.** Served at `https://<daemon-fingerprint>.agentproto.cloud`,
+the origin belongs to that one daemon (`src/lib/pair-host.ts`). `/pair` refuses
+offers for any other daemon, and the credential store only holds that daemon.
+Browsers isolate storage and service workers per origin, so no daemon's
+Control Center can reach another daemon's pairing. Any other host
+(cli.agentproto.sh, localhost) is a shared origin: it still works, and says
+so. The pair domain is set at build time:
+
+| Var                                   | Default            |
+| ------------------------------------- | ------------------ |
+| `NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN`  | `agentproto.cloud` |
+
+To try per-daemon origins locally, build with
+`NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN=localhost` and open
+`http://<fingerprint>.localhost:3010/pair`. Chrome resolves `*.localhost` to
+loopback and treats it as a secure context, which service workers and
+WebCrypto need.
+
 ## Structure
 
 ```

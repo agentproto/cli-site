@@ -30,6 +30,7 @@ import {
   type PairWorkerRequest,
   type PairWorkerStatus,
 } from "../lib/pair"
+import { pairHostMode, scopeCredentialStore } from "../lib/pair-host"
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -42,7 +43,8 @@ const scope = new URL(self.registration.scope).pathname // "/d/<id>/"
 const id = scope.split("/")[2] ?? ""
 const prefix = scope.slice(0, -1) // "/d/<id>"
 
-const store = createIndexedDbCredentialStore()
+// On a per-daemon origin this only ever yields that daemon's credential.
+const store = scopeCredentialStore(createIndexedDbCredentialStore(), pairHostMode(self.location.hostname))
 let client: TunnelClient | null = null
 let building: Promise<TunnelClient> | null = null
 let notPaired = false

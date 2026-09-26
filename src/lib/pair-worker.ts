@@ -2,13 +2,20 @@
 
 import { createIndexedDbCredentialStore, type CredentialStore } from "@agentproto/pair-client"
 import { PAIR_SW_URL, pairingScope, type PairWorkerRequest } from "@/lib/pair"
+import { pairHostMode, scopeCredentialStore, type PairHostMode } from "@/lib/pair-host"
 
 let store: CredentialStore | null = null
 
-/** The origin's pairing credentials (IndexedDB — never localStorage). The
- *  worker opens the same database. */
+/** Which daemon(s) this origin serves (see src/lib/pair-host.ts). */
+export function hostMode(): PairHostMode {
+  return pairHostMode(window.location.hostname)
+}
+
+/** The origin's pairing credentials (IndexedDB — never localStorage), limited
+ *  to this origin's daemon on a per-daemon origin. The worker opens the same
+ *  database through the same scoping. */
 export function pairStore(): CredentialStore {
-  store ??= createIndexedDbCredentialStore()
+  store ??= scopeCredentialStore(createIndexedDbCredentialStore(), hostMode())
   return store
 }
 

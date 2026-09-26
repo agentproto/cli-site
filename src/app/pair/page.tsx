@@ -10,9 +10,12 @@ import {
   type PendingPairing,
 } from "@agentproto/pair-client"
 import { Fingerprint, HowToPair, PairButton, PairShell } from "@/components/pair-shell"
+import { SharedOriginNotice } from "@/components/shared-origin-notice"
 import { isOutdatedPairingError, statusPath } from "@/lib/pair"
+import { daemonOrigin, PAIR_DOMAIN } from "@/lib/pair-host"
 import {
   forgetPairing,
+  hostMode,
   pairStore,
   postToWorker,
   registerPairingWorker,
@@ -27,7 +30,13 @@ type Phase =
   | { kind: "saving"; daemon: PairedDaemon }
   | { kind: "cancelled"; daemon: PairedDaemon }
   | { kind: "error"; title: string; message: string; outdated?: boolean }
+  /** The offer is for another daemon than this per-daemon origin's. */
+  | { kind: "foreign"; here: string; offered: string; link: string }
+  /** A host under the pair domain that isn't `<fingerprint>.<domain>`. */
+  | { kind: "not_daemon_origin" }
   | { kind: "unsupported" }
+
+const OFFER_PREFIX = "agentproto://pair?"
 
 /**
  * Read the offer out of the fragment (`/pair#v=2&rv=…`, what `agentproto pair
@@ -39,7 +48,14 @@ function takeOfferFromFragment(): string | null {
   const fragment = window.location.hash.replace(/^#/, "")
   if (!fragment) return null
   window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search)
-  return `agentproto://pair?${fragment}`
+  return `${OFFER_PREFIX}${fragment}`
+}
+
+/** The same offer on its own daemon's origin (the fragment is never sent to
+ *  a server, and the offer isn't spent yet: only inspected). */
+function foreignPhase(here: string, offered: string, offer: string): Phase {
+  const link = `${daemonOrigin(offered, window.location)}/pair#${offer.slice(OFFER_PREFIX.length)}`
+  return { kind: "foreign", here, offered, link }
 }
 
 /** How this phone is listed on the daemon (`agentproto pair ls`). */
@@ -100,6 +116,11 @@ export default function PairPage(): React.ReactElement {
     startedRef.current = true
 
     const offer = takeOfferFromFragment()
+    const mode = hostMode()
+    if (mode.kind === "invalid") {
+      setPhase({ kind: "not_daemon_origin" })
+      return
+    }
     if (!serviceWorkersSupported()) {
       setPhase({ kind: "unsupported" })
       return
@@ -111,8 +132,19 @@ export default function PairPage(): React.ReactElement {
     void (async () => {
       try {
         const info = await inspectOffer(offer)
+        // A per-daemon origin pairs its own daemon only: refuse before any
+        // handshake, so the offer stays unspent for the right origin.
+        if (mode.kind === "daemon" && info.fingerprint !== mode.fingerprint) {
+          setPhase(foreignPhase(mode.fingerprint, info.fingerprint, offer))
+          return
+        }
         setPhase({ kind: "pairing", fingerprint: info.fingerprint })
         const pending = await pairFromOffer(offer, { store: pairStore(), clientName: deviceName() })
+        if (mode.kind === "daemon" && pending.daemon.fingerprint !== mode.fingerprint) {
+          pending.cancel()
+          setPhase(foreignPhase(mode.fingerprint, pending.daemon.fingerprint, offer))
+          return
+        }
         pendingRef.current = pending
         setPhase({ kind: "confirm", daemon: pending.daemon })
       } catch (err) {
@@ -178,6 +210,7 @@ export default function PairPage(): React.ReactElement {
         return (
           <PairShell eyebrow="not paired" title="Pair this phone with your agentproto daemon">
             <HowToPair />
+            <SharedOriginNotice />
           </PairShell>
         )
       }
@@ -203,6 +236,7 @@ export default function PairPage(): React.ReactElement {
               <HowToPair />
             </div>
           </details>
+          <SharedOriginNotice />
         </PairShell>
       )
 
@@ -234,6 +268,7 @@ export default function PairPage(): React.ReactElement {
               Cancel
             </PairButton>
           </div>
+          <SharedOriginNotice />
         </PairShell>
       )
 
@@ -247,6 +282,33 @@ export default function PairPage(): React.ReactElement {
           <PairButton variant="secondary" onClick={() => void loadHome()}>
             Done
           </PairButton>
+        </PairShell>
+      )
+
+    case "foreign":
+      return (
+        <PairShell eyebrow="wrong address" title="This pairing link is for a different daemon" tone="danger">
+          <p>
+            This address pairs daemon <code>{phase.here}</code> only. The QR you scanned is for daemon:
+          </p>
+          <Fingerprint value={phase.offered} />
+          <p>Nothing was saved. Open the pairing link on that daemon&apos;s own address:</p>
+          <a
+            href={phase.link}
+            className="flex min-h-11 items-center justify-center rounded-md bg-fd-primary px-4 text-sm font-medium text-fd-primary-foreground hover:opacity-90"
+          >
+            Open {phase.offered}.{PAIR_DOMAIN}
+          </a>
+        </PairShell>
+      )
+
+    case "not_daemon_origin":
+      return (
+        <PairShell eyebrow="wrong address" title="This address isn't a daemon's pairing page" tone="danger">
+          <p>
+            Pairing pages live at <code>&lt;daemon fingerprint&gt;.{PAIR_DOMAIN}</code>. Scan the QR from{" "}
+            <code>agentproto pair offer --qr</code> again, it opens the right address.
+          </p>
         </PairShell>
       )
 

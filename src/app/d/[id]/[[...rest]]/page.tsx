@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { Fingerprint, HowToPair, PairButton, PairShell } from "@/components/pair-shell"
 import { controlCenterUrl, isPairWorkerStatus, isPairingId, pairingScope, type PairState } from "@/lib/pair"
+import { daemonOrigin, PAIR_DOMAIN } from "@/lib/pair-host"
 import {
   forgetPairing,
+  hostMode,
   pairStore,
   postToWorker,
   registerPairingWorker,
@@ -59,9 +61,17 @@ export default function DaemonStatusPage(): React.ReactElement {
   const [name, setName] = useState<string | null>(null)
   const [fingerprint, setFingerprint] = useState<string | null>(null)
   const regRef = useRef<ServiceWorkerRegistration | null>(null)
+  /** Set on a per-daemon origin asked for another daemon: that origin's id. */
+  const [originOwner, setOriginOwner] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isPairingId(id)) {
+      setView({ state: "not_paired" })
+      return
+    }
+    const mode = hostMode()
+    if (mode.kind === "daemon" && mode.fingerprint !== id) {
+      setOriginOwner(mode.fingerprint)
       setView({ state: "not_paired" })
       return
     }
@@ -191,6 +201,21 @@ export default function DaemonStatusPage(): React.ReactElement {
       )
 
     case "not_paired":
+      if (originOwner) {
+        return (
+          <PairShell eyebrow="wrong address" title="This address serves another daemon" tone="danger">
+            <p>
+              This address belongs to daemon <code>{originOwner}</code> only. Daemon <code>{id}</code> has its own:
+            </p>
+            <a
+              href={`${daemonOrigin(id, window.location)}/d/${id}`}
+              className="flex min-h-11 items-center justify-center rounded-md bg-fd-primary px-4 text-sm font-medium text-fd-primary-foreground hover:opacity-90"
+            >
+              Open {id}.{PAIR_DOMAIN}
+            </a>
+          </PairShell>
+        )
+      }
       return (
         <PairShell eyebrow="not paired" title="This phone isn't paired with that daemon">
           <HowToPair />

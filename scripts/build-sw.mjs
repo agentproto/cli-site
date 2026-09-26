@@ -27,5 +27,11 @@ await build({
   minify: process.env.NODE_ENV === "production",
   sourcemap: process.env.NODE_ENV === "production" ? false : "inline",
   legalComments: "none",
+  // Same pair domain the pages get from Next (src/lib/pair-host.ts).
+  define: {
+    "process.env.NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN": JSON.stringify(
+      process.env.NEXT_PUBLIC_AGENTPROTO_PAIR_DOMAIN ?? "",
+    ),
+  },
   logLevel: "info",
 })
