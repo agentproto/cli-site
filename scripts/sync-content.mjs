@@ -17,6 +17,27 @@
  * `.mdx` so Fumadocs picks them up (Fumadocs needs `.mdx`; our source
  * is plain `.md` because it ships next to code, not next to a site).
  *
+ * Non-markdown assets (images, PDFs) referenced by a guide are copied
+ * verbatim, byte for byte, to TWO places:
+ *
+ *   - `content/docs/<rel>` — fumadocs-mdx's `remarkImage` plugin turns a
+ *     relative `![]()` src into a static `import` resolved against the
+ *     compiled .mdx file's own directory (`fumadocs-core/dist/mdx-plugins/
+ *     remark-image.js`: `getImportPath` does `path.relative(dir, file)`
+ *     where `dir` is the mdx file's dirname). Webpack/Turbopack need the
+ *     real file sitting there at build time for that import to resolve —
+ *     it is never fetched from `public/`.
+ *   - `public/docs/<rel>` — a plain markdown *link* (not an image), e.g. a
+ *     "download this as a PDF" link, is NOT rewritten by remarkImage (it
+ *     only visits `image` nodes) and reaches the page as a literal
+ *     relative `href`. The browser resolves that against the current page
+ *     URL, which is `/docs/<rel-page-path>` because `docsSource` mounts
+ *     `content/docs` at `baseUrl: "/docs"` — the same relative path a
+ *     sibling asset has under `content/docs`. Next.js serves `public/`
+ *     files at that same path ahead of the `[[...slug]]` catch-all route,
+ *     so mirroring the asset there under `public/docs/<rel>` is what
+ *     actually makes the link 200 instead of 404 through the docs route.
+ *
  * Frontmatter is synthesised from the first H1 + first non-heading
  * paragraph if absent, so the synced pages have title + description
  * without us having to retroactively add frontmatter to every doc.
@@ -25,7 +46,7 @@
  */
 
 import { existsSync } from "node:fs"
-import { mkdir, rm, readdir, readFile, writeFile, stat } from "node:fs/promises"
+import { copyFile, mkdir, rm, readdir, readFile, writeFile, stat } from "node:fs/promises"
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -40,6 +61,13 @@ const SIBLING_DOCS = path.join(SIBLING_DIR, "docs/cli")
 const CACHE_DIR = path.join(ROOT, ".cache/agentproto-ts")
 const CACHE_DOCS = path.join(CACHE_DIR, "docs/cli")
 const TARGET_DIR = path.join(ROOT, "content/docs")
+const PUBLIC_DOCS_DIR = path.join(ROOT, "public/docs")
+
+// Binary assets a guide might reference: images (for `![]()`, resolved by
+// fumadocs-mdx's remarkImage as a static import) and PDFs (for a plain
+// download link). Kept to what guides actually embed — not a general
+// static-file mirror.
+const ASSET_RE = /\.(png|jpe?g|gif|svg|webp|pdf)$/i
 
 const REPO_URL =
   process.env.AGENTPROTO_TS_REPO_URL ?? "https://github.com/agentproto/ts.git"
@@ -66,6 +94,33 @@ async function walkMarkdown(dir, out = []) {
     }
   }
   return out
+}
+
+/** Images and PDFs a guide embeds or links to — copied verbatim, see the
+ *  header comment for why this needs two destinations. */
+async function walkAssets(dir, out = []) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      await walkAssets(full, out)
+    } else if (entry.isFile() && ASSET_RE.test(entry.name)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+/** Copy one asset byte-for-byte to both `content/docs/<rel>` (so
+ *  remarkImage's static import resolves) and `public/docs/<rel>` (so a
+ *  plain relative link to it 200s). Same relative path in both — see the
+ *  header comment. */
+async function copyAsset(srcAbs, srcRoot) {
+  const rel = path.relative(srcRoot, srcAbs)
+  for (const base of [TARGET_DIR, PUBLIC_DOCS_DIR]) {
+    const dstAbs = path.join(base, rel)
+    await mkdir(path.dirname(dstAbs), { recursive: true })
+    await copyFile(srcAbs, dstAbs)
+  }
 }
 
 /**
@@ -173,6 +228,15 @@ async function syncTree(srcRoot, dstRoot) {
     await syncOne(f, srcRoot, dstRoot)
   }
   console.log(`[sync-content] synced ${files.length} file(s) to ${dstRoot}`)
+
+  await rm(PUBLIC_DOCS_DIR, { recursive: true, force: true })
+  const assets = await walkAssets(srcRoot)
+  for (const a of assets) {
+    await copyAsset(a, srcRoot)
+  }
+  if (assets.length > 0) {
+    console.log(`[sync-content] synced ${assets.length} asset(s) to ${dstRoot} and ${PUBLIC_DOCS_DIR}`)
+  }
 }
 
 async function syncFromSibling() {

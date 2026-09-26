@@ -9,6 +9,7 @@ node_modules
 
 # Synced content — always populated from agentproto/ts at build time
 content/docs
+public/docs
 
 # Sync cache (git clone of agentproto/ts)
 .cache
