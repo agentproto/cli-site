@@ -68,6 +68,27 @@ Env vars at build time:
 
 Set them when you want to publish from a fork or a non-main branch.
 
+## Phone pairing (`/pair`, `/d/<id>/`)
+
+`agentproto pair offer --qr` prints a QR for
+`https://cli.agentproto.sh/pair#<offer>`. The offer rides in the fragment,
+so it never reaches this server.
+
+- **`/pair`** reads the offer, runs the end-to-end handshake through the
+  rendezvous (`@agentproto/pair-client`), shows the daemon's name and
+  fingerprint to confirm, and stores the credential in IndexedDB (never
+  localStorage). With no offer, it lists the paired daemons.
+- **`/d/<id>`** (`<id>` = daemon fingerprint) is the state page: not paired,
+  connecting, daemon offline (retrying), revoked.
+- **`/d/<id>/…`** is answered by a service worker registered for that scope
+  (`src/sw/pair-sw.ts`, bundled by `scripts/build-sw.mjs` to
+  `public/pair-sw.js`). It holds the one tunnel to the daemon and proxies
+  every request under the scope to it. The Control Center
+  (`/d/<id>/apps/@agentik/session-chat/ui/`) and its REST, `/mcp` and SSE
+  calls all come from the daemon. cli-site serves none of it.
+
+`public/pair.webmanifest` makes it installable (add to home screen).
+
 ## Structure
 
 ```
