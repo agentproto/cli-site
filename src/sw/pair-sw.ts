@@ -23,6 +23,7 @@ import {
 } from "@agentproto/pair-client"
 import {
   CONTROL_CENTER_PATH,
+  isOutdatedPairingError,
   isPairingId,
   statusPath,
   type PairState,
@@ -52,7 +53,10 @@ class NotPairedError extends Error {
 }
 
 function getClient(): Promise<TunnelClient> {
-  if (client && client.state !== "closed") return Promise.resolve(client)
+  // Kept even when closed as outdated: rebuilding would only be refused again.
+  if (client && (client.state !== "closed" || isOutdatedPairingError(client.lastError))) {
+    return Promise.resolve(client)
+  }
   building ??= (async () => {
     const credential = isPairingId(id) ? await store.get(id) : undefined
     notPaired = !credential
@@ -77,8 +81,14 @@ function dropClient(): void {
 }
 
 function currentStatus(): PairWorkerStatus {
-  const state: PairState = notPaired ? "not_paired" : (client?.state ?? "connecting")
   const err = client?.lastError
+  // A credential from before the current pairing protocol is refused before
+  // any dial, and the client can report that as `closed`: key on the error.
+  const state: PairState = notPaired
+    ? "not_paired"
+    : isOutdatedPairingError(err)
+      ? "outdated"
+      : (client?.state ?? "connecting")
   return {
     type: "agentproto-pair:state",
     id,
@@ -104,14 +114,16 @@ async function leaveControlCenter(state: PairState): Promise<void> {
   }
 }
 
-function onState(c: TunnelClient, { state }: StateChange): void {
+function onState(c: TunnelClient, change: StateChange): void {
   if (c !== client) return
+  const state = isOutdatedPairingError(change.error ?? c.lastError) ? "outdated" : change.state
   void broadcast()
   if (offlineTimer && state !== "offline") {
     clearTimeout(offlineTimer)
     offlineTimer = null
   }
-  if (state === "revoked") void leaveControlCenter("revoked")
+  // Both terminal: the client stops retrying, and only a new pairing helps.
+  if (state === "revoked" || state === "outdated") void leaveControlCenter(state)
   if (state === "offline" && !offlineTimer) {
     offlineTimer = setTimeout(() => {
       offlineTimer = null
@@ -120,7 +132,9 @@ function onState(c: TunnelClient, { state }: StateChange): void {
   }
 }
 
+/** The `state=` hint for the status page. */
 function errorCode(err: unknown): string {
+  if (isOutdatedPairingError(err)) return "outdated"
   if (err instanceof TunnelClientError || err instanceof NotPairedError) return err.code
   return "error"
 }

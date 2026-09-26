@@ -30,7 +30,14 @@ function resolveNext(id: string, fromQuery: string | null, here: string | null):
 }
 
 function isPairState(s: string | null): s is PairState {
-  return s === "connecting" || s === "open" || s === "offline" || s === "revoked" || s === "not_paired"
+  return (
+    s === "connecting" ||
+    s === "open" ||
+    s === "offline" ||
+    s === "revoked" ||
+    s === "not_paired" ||
+    s === "outdated"
+  )
 }
 
 /**
@@ -165,6 +172,20 @@ export default function DaemonStatusPage(): React.ReactElement {
           <HowToPair />
           <PairButton variant="danger" onClick={() => void forget()}>
             Forget this daemon
+          </PairButton>
+        </PairShell>
+      )
+
+    case "outdated":
+      return (
+        <PairShell eyebrow="not paired · outdated pairing" title="Pair this phone again" tone="danger">
+          <p>
+            This phone was paired with {daemon} using an older pairing protocol, which the daemon no longer
+            accepts. Make sure agentproto is up to date on the computer, then pair again from a new QR.
+          </p>
+          <HowToPair />
+          <PairButton variant="danger" onClick={() => void forget()}>
+            Forget the old pairing
           </PairButton>
         </PairShell>
       )

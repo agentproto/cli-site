@@ -10,7 +10,7 @@ import {
   type PendingPairing,
 } from "@agentproto/pair-client"
 import { Fingerprint, HowToPair, PairButton, PairShell } from "@/components/pair-shell"
-import { statusPath } from "@/lib/pair"
+import { isOutdatedPairingError, statusPath } from "@/lib/pair"
 import {
   forgetPairing,
   pairStore,
@@ -26,11 +26,11 @@ type Phase =
   | { kind: "confirm"; daemon: PairedDaemon }
   | { kind: "saving"; daemon: PairedDaemon }
   | { kind: "cancelled"; daemon: PairedDaemon }
-  | { kind: "error"; title: string; message: string }
+  | { kind: "error"; title: string; message: string; outdated?: boolean }
   | { kind: "unsupported" }
 
 /**
- * Read the offer out of the fragment (`/pair#v=1&rv=…`, what `agentproto pair
+ * Read the offer out of the fragment (`/pair#v=2&rv=…`, what `agentproto pair
  * offer --qr` links to) and wipe it from the address bar and history right
  * away, before anything else runs. The fragment is the query string of an
  * `agentproto://pair?…` offer; it never reached a server.
@@ -61,8 +61,11 @@ function deviceName(): string {
   return device ? `${device} browser (${window.location.host})` : `browser@${window.location.host}`
 }
 
-function describeError(err: unknown): { title: string; message: string } {
+function describeError(err: unknown): { title: string; message: string; outdated?: boolean } {
   const message = err instanceof Error ? err.message : String(err)
+  if (isOutdatedPairingError(err)) {
+    return { title: "This pairing link is from an older agentproto", message, outdated: true }
+  }
   if (err instanceof TunnelClientError) {
     if (err.code === "invalid_offer") {
       return { title: "This pairing link is invalid or expired", message }
@@ -251,7 +254,11 @@ export default function PairPage(): React.ReactElement {
       return (
         <PairShell eyebrow="pairing failed" title={phase.title} tone="danger">
           <p className="break-words font-mono text-xs">{phase.message}</p>
-          <p>Pairing links are single-use and expire after a few minutes. Get a fresh one:</p>
+          <p>
+            {phase.outdated
+              ? "Update agentproto on the computer, then get a new pairing link:"
+              : "Pairing links are single-use and expire after a few minutes. Get a fresh one:"}
+          </p>
           <HowToPair />
         </PairShell>
       )
