@@ -22,8 +22,10 @@ RUN apk add --no-cache git python3 make g++ libc6-compat
 # releases (npm/cli#7902). Install pnpm directly via npm.
 RUN npm install -g pnpm@10.4.1
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --no-frozen-lockfile
+# A standalone pnpm-lock.yaml is committed (sites-fix, 2026-10-02) so
+# this resolves to pinned versions, not floating package.json ranges.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 ENV NODE_ENV=production

@@ -29,6 +29,7 @@ import { mkdir, rm, readdir, readFile, writeFile, stat } from "node:fs/promises"
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { compile } from "@mdx-js/mdx"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, "..")
@@ -201,12 +202,55 @@ async function syncFromGit() {
   await syncTree(CACHE_DOCS, TARGET_DIR)
 }
 
+function stripFrontmatter(src) {
+  if (!src.startsWith("---\n")) return src
+  const end = src.indexOf("\n---\n", 4)
+  if (end === -1) return src
+  const linesConsumed = src.slice(0, end + 5).split("\n").length - 1
+  return "\n".repeat(linesConsumed) + src.slice(end + 5)
+}
+
+async function findMdxFiles(dir, out = []) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) await findMdxFiles(full, out)
+    else if (entry.name.endsWith(".mdx")) out.push(full)
+  }
+  return out
+}
+
+// Catch a broken doc BEFORE `next build` ever sees it — e.g. a
+// kramdown-style `{#custom-id}` heading suffix or a brace that MDX
+// tries to parse as a JS expression. Flat "file:line" list while the
+// content is still sitting here, synced but not yet committed to a
+// build.
+async function validateContent() {
+  const files = await findMdxFiles(TARGET_DIR)
+  const failures = []
+  for (const file of files) {
+    const src = stripFrontmatter(await readFile(file, "utf8"))
+    try {
+      await compile(src, { format: "mdx" })
+    } catch (err) {
+      const rel = path.relative(TARGET_DIR, file)
+      const at = err.place ? ` @ line ${err.place.line ?? "?"}` : ""
+      failures.push(`  ${rel}${at}: ${err.message}`)
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `[sync-content] ${failures.length} synced .mdx file(s) fail to compile:\n${failures.join("\n")}`
+    )
+  }
+}
+
 async function main() {
   if (await isDir(SIBLING_DOCS)) {
     await syncFromSibling()
   } else {
     await syncFromGit()
   }
+  await validateContent()
   console.log(`[sync-content] done`)
 }
 
