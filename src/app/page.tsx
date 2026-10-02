@@ -46,7 +46,7 @@ export default function Home(): React.ReactElement {
             <span aria-hidden="true" className="session-blink mr-2 text-fd-primary">
               ▍
             </span>
-            reference host · 9 adapters · v1 on npm
+            reference host · 14 agents · 0.20.0 on npm
           </p>
           <h1 className="mb-4 font-serif text-4xl font-bold leading-[1.08] tracking-tight text-balance sm:text-5xl">
             Install it. Run an agent.{" "}

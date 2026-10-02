@@ -23,7 +23,7 @@ const LINES: Line[] = [
   {
     kind: "out",
     delay: "1.9s",
-    content: "+ @agentproto/cli — 9 adapters detected",
+    content: "+ @agentproto/cli — 14 agents detected",
   },
   {
     kind: "cmd",
