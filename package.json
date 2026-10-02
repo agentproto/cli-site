@@ -19,7 +19,7 @@
     "lint": "next lint",
     "pretypecheck": "node scripts/sync-content.mjs && fumadocs-mdx",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf .next .source content/docs .cache"
+    "clean": "rm -rf .next .source content/docs public/docs .cache"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
