@@ -197,7 +197,7 @@ function attachPty({
       }
     })
 
-    sock.addEventListener("close", ev => {
+    sock.addEventListener("close", () => {
       if (!active || exited) return
       attempts++
       if (attempts > MAX) {

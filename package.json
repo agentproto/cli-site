@@ -16,7 +16,7 @@
     "prebuild": "node scripts/sync-content.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
     "pretypecheck": "node scripts/sync-content.mjs && fumadocs-mdx",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .source content/docs .cache"
@@ -41,6 +41,8 @@
     "@types/node": "^24.12.3",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.6",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3"
   },

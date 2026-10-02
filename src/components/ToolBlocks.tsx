@@ -56,7 +56,6 @@ export function toDisplayText(value: unknown): string {
  *  Accepts any wire value and normalises it first via toDisplayText. */
 export function cleanToolText(raw: unknown): string {
   const s0 = toDisplayText(raw)
-  // eslint-disable-next-line no-control-regex
   let s = s0.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
   s = s.replace(/\[[0-9;]*m/g, "")
   s = s
