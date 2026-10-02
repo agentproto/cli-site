@@ -1,24 +1,18 @@
 name: Deploy to GCP Cloud Run
 
+# DISABLED as an automatic trigger (sites-fix, 2026-10-02): this site is
+# live on OVH (Coolify app `agentproto-cli-site` on `app-internal-a`,
+# deployed via `deployment/ovh/scripts/build-deploy.sh agentproto-cli-site`
+# from the agentik-studio monorepo — see that repo's
+# `deployment/ovh/fleet-services.yaml`, where this service is already
+# declared and proven, and `deployment/ovh/SERVICES-STATUS.md`), not
+# Cloud Run. The daily schedule below was failing every run (missing/stale
+# GCP IAM + Artifact Registry wiring), adding noise without protecting
+# anything real. Left in place, `workflow_dispatch`-only, as a documented
+# rollback path — delete once OVH has been the deploy path long enough
+# that nobody expects to fall back to it.
 on:
-  push:
-    branches: [main]
-  # Allow manual triggering from the Actions UI for emergency redeploy.
   workflow_dispatch:
-  # Triggered by repository_dispatch from agentproto/ts when the
-  # docs/cli/ tree changes — keeps content fresh without manual
-  # rebuild. Configure via a follow-up workflow in the ts repo.
-  repository_dispatch:
-    types: [content-changed]
-  # Stopgap for the above: the ts-side dispatch sender was never built
-  # (confirmed absent from agentproto/ts's .github/workflows), so a
-  # docs/cli/ change there currently triggers nothing here at all — this
-  # site's last deploy (2026-07-13) already predates a getting-started.md
-  # rewrite that landed 4 days later, and nothing since has closed that
-  # gap. A daily rebuild bounds the staleness to <24h even while the real
-  # dispatch sender is unbuilt; it's not a substitute for it.
-  schedule:
-    - cron: '0 13 * * *'
 
 concurrency:
   group: deploy-${{ github.ref }}
